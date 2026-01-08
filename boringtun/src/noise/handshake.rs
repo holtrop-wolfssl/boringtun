@@ -8,10 +8,11 @@ use crate::noise::session::Session;
 use crate::sleepyinstant::Instant;
 use crate::x25519;
 use blake2::digest::{FixedOutput, KeyInit};
-use blake2::{Blake2s256, Blake2sMac, Digest};
+use blake2::{Blake2s256, Blake2sMac};
 use rand_core::OsRng;
 use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
+use wolfssl_wolfcrypt::blake2::BLAKE2s;
 use wolfssl_wolfcrypt::chacha20_poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
 
 #[cfg(feature = "mock-instant")]
@@ -36,10 +37,12 @@ const INITIAL_CHAIN_HASH: [u8; KEY_LEN] = [
 
 #[inline]
 pub(crate) fn b2s_hash(data1: &[u8], data2: &[u8]) -> [u8; 32] {
-    let mut hash = Blake2s256::new();
-    hash.update(data1);
-    hash.update(data2);
-    hash.finalize().into()
+    let mut hash = BLAKE2s::new(32).unwrap();
+    hash.update(data1).unwrap();
+    hash.update(data2).unwrap();
+    let mut output = [0u8; 32];
+    hash.finalize(&mut output).unwrap();
+    output
 }
 
 #[inline]
