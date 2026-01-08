@@ -10,11 +10,11 @@ use crate::x25519;
 use aead::{Aead, Payload};
 use blake2::digest::{FixedOutput, KeyInit};
 use blake2::{Blake2s256, Blake2sMac, Digest};
-use chacha20poly1305::XChaCha20Poly1305;
 use rand_core::OsRng;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
+use wolfssl_wolfcrypt::chacha20_poly1305::XChaCha20Poly1305;
 
 #[cfg(feature = "mock-instant")]
 use mock_instant::Instant;
@@ -662,13 +662,10 @@ impl Handshake {
         // msg.encrypted_cookie = XAEAD(HASH(LABEL_COOKIE || responder.static_public), msg.nonce, cookie, last_received_msg.mac1)
         let key = b2s_hash(LABEL_COOKIE, self.params.peer_static_public.as_bytes()); // TODO: pre-compute
 
-        let payload = Payload {
-            aad: &mac1[0..16],
-            msg: packet.encrypted_cookie,
-        };
-        let plaintext = XChaCha20Poly1305::new_from_slice(&key)
-            .unwrap()
-            .decrypt(packet.nonce.into(), payload)
+        let aad = &mac1[0..16];
+        let msg = packet.encrypted_cookie;
+        let mut plaintext = vec![0u8; msg.len()];
+        XChaCha20Poly1305::decrypt(&key, packet.nonce, aad, msg, &mut plaintext)
             .map_err(|_| WireGuardError::InvalidAeadTag)?;
 
         let cookie = plaintext
