@@ -7,14 +7,13 @@ use crate::noise::session::Session;
 #[cfg(not(feature = "mock-instant"))]
 use crate::sleepyinstant::Instant;
 use crate::x25519;
-use aead::{Aead, Payload};
 use blake2::digest::{FixedOutput, KeyInit};
 use blake2::{Blake2s256, Blake2sMac, Digest};
 use rand_core::OsRng;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
-use wolfssl_wolfcrypt::chacha20_poly1305::XChaCha20Poly1305;
+use wolfssl_wolfcrypt::chacha20_poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
 
 #[cfg(feature = "mock-instant")]
 use mock_instant::Instant;
@@ -103,19 +102,8 @@ fn aead_chacha20_seal_inner(
     data: &[u8],
     aad: &[u8],
 ) {
-    let key = LessSafeKey::new(UnboundKey::new(&CHACHA20_POLY1305, key).unwrap());
-
-    ciphertext[..data.len()].copy_from_slice(data);
-
-    let tag = key
-        .seal_in_place_separate_tag(
-            Nonce::assume_unique_for_key(nonce),
-            Aad::from(aad),
-            &mut ciphertext[..data.len()],
-        )
-        .unwrap();
-
-    ciphertext[data.len()..].copy_from_slice(tag.as_ref());
+    let (cipher_out, tag_out) = ciphertext.split_at_mut(data.len());
+    ChaCha20Poly1305::encrypt(key, &nonce, aad, data, cipher_out, tag_out).unwrap();
 }
 
 #[inline]
