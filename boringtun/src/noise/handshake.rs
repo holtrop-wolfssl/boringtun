@@ -10,7 +10,6 @@ use crate::x25519;
 use blake2::digest::{FixedOutput, KeyInit};
 use blake2::{Blake2s256, Blake2sMac, Digest};
 use rand_core::OsRng;
-use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
 use wolfssl_wolfcrypt::chacha20_poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
@@ -118,31 +117,8 @@ fn aead_chacha20_open(
     let mut nonce: [u8; 12] = [0; 12];
     nonce[4..].copy_from_slice(&counter.to_le_bytes());
 
-    aead_chacha20_open_inner(buffer, key, nonce, data, aad)
+    ChaCha20Poly1305::decrypt(key, &nonce, aad, &data[..data.len()-16], &data[data.len()-16..], buffer)
         .map_err(|_| WireGuardError::InvalidAeadTag)?;
-    Ok(())
-}
-
-#[inline]
-fn aead_chacha20_open_inner(
-    buffer: &mut [u8],
-    key: &[u8],
-    nonce: [u8; 12],
-    data: &[u8],
-    aad: &[u8],
-) -> Result<(), ring::error::Unspecified> {
-    let key = LessSafeKey::new(UnboundKey::new(&CHACHA20_POLY1305, key).unwrap());
-
-    let mut inner_buffer = data.to_owned();
-
-    let plaintext = key.open_in_place(
-        Nonce::assume_unique_for_key(nonce),
-        Aad::from(aad),
-        &mut inner_buffer,
-    )?;
-
-    buffer.copy_from_slice(plaintext);
-
     Ok(())
 }
 
