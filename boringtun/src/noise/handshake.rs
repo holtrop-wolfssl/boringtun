@@ -8,11 +8,11 @@ use crate::noise::session::Session;
 use crate::sleepyinstant::Instant;
 use crate::x25519;
 use blake2::digest::{FixedOutput, KeyInit};
-use blake2::{Blake2s256, Blake2sMac};
+use blake2::Blake2sMac;
 use rand_core::OsRng;
 use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
-use wolfssl_wolfcrypt::blake2::BLAKE2s;
+use wolfssl_wolfcrypt::blake2::{BLAKE2s, BLAKE2sHmac};
 use wolfssl_wolfcrypt::chacha20_poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
 
 #[cfg(feature = "mock-instant")]
@@ -48,22 +48,20 @@ pub(crate) fn b2s_hash(data1: &[u8], data2: &[u8]) -> [u8; 32] {
 #[inline]
 /// RFC 2401 HMAC+Blake2s, not to be confused with *keyed* Blake2s
 pub(crate) fn b2s_hmac(key: &[u8], data1: &[u8]) -> [u8; 32] {
-    use blake2::digest::Update;
-    type HmacBlake2s = hmac::SimpleHmac<Blake2s256>;
-    let mut hmac = HmacBlake2s::new_from_slice(key).unwrap();
-    hmac.update(data1);
-    hmac.finalize_fixed().into()
+    let mut mac = [0u8; 32];
+    BLAKE2sHmac::hmac(data1, key, &mut mac).unwrap();
+    mac
 }
 
 #[inline]
 /// Like b2s_hmac, but chain data1 and data2 together
 pub(crate) fn b2s_hmac2(key: &[u8], data1: &[u8], data2: &[u8]) -> [u8; 32] {
-    use blake2::digest::Update;
-    type HmacBlake2s = hmac::SimpleHmac<Blake2s256>;
-    let mut hmac = HmacBlake2s::new_from_slice(key).unwrap();
-    hmac.update(data1);
-    hmac.update(data2);
-    hmac.finalize_fixed().into()
+    let mut mac = [0u8; 32];
+    let mut blake2s_hmac = BLAKE2sHmac::new(key).unwrap();
+    blake2s_hmac.update(data1).unwrap();
+    blake2s_hmac.update(data2).unwrap();
+    blake2s_hmac.finalize(key, &mut mac).unwrap();
+    mac
 }
 
 #[inline]
