@@ -66,9 +66,11 @@ pub(crate) fn b2s_hmac2(key: &[u8], data1: &[u8], data2: &[u8]) -> [u8; 32] {
 
 #[inline]
 pub(crate) fn b2s_keyed_mac_16(key: &[u8], data1: &[u8]) -> [u8; 16] {
-    let mut hmac = Blake2sMac::new_from_slice(key).unwrap();
-    blake2::digest::Update::update(&mut hmac, data1);
-    hmac.finalize_fixed().into()
+    let mut blake2s = BLAKE2s::new_with_key(16, key).unwrap();
+    blake2s.update(data1).unwrap();
+    let mut hash = [0u8; 16];
+    blake2s.finalize(&mut hash).unwrap();
+    hash
 }
 
 #[inline]
