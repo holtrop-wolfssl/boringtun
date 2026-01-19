@@ -231,7 +231,7 @@ struct HandshakeInitSentState {
     local_index: u32,
     hash: [u8; KEY_LEN],
     chaining_key: [u8; KEY_LEN],
-    ephemeral_private: x25519::StaticSecret,
+    ephemeral_private: [u8; KEY_LEN],
     time_sent: Instant,
 }
 
@@ -552,7 +552,7 @@ impl Handshake {
         // responder.chaining_key = HMAC(temp, 0x1)
         let mut chaining_key = b2s_hmac(&temp, &[0x01]);
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.ephemeral_public))
-        let ephemeral_shared = diffie_hellman(state.ephemeral_private.as_bytes(), unencrypted_ephemeral.as_bytes());
+        let ephemeral_shared = diffie_hellman(&state.ephemeral_private, unencrypted_ephemeral.as_bytes());
         let temp = b2s_hmac(&chaining_key, &ephemeral_shared);
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
@@ -733,6 +733,7 @@ impl Handshake {
         // initiator.hash = HASH(initiator.hash || msg.encrypted_timestamp)
         hash = b2s_hash(&hash, encrypted_timestamp);
 
+        let ephemeral_private = ephemeral_private.to_bytes();
         let time_now = Instant::now();
         self.previous = std::mem::replace(
             &mut self.state,
