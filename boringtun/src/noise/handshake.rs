@@ -559,11 +559,7 @@ impl Handshake {
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.static_public))
         let temp = b2s_hmac(
             &chaining_key,
-            &self
-                .params
-                .static_private
-                .diffie_hellman(&unencrypted_ephemeral)
-                .to_bytes(),
+            &diffie_hellman(self.params.static_private.as_bytes(), unencrypted_ephemeral.as_bytes())
         );
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
@@ -803,9 +799,7 @@ impl Handshake {
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.static_public))
         let temp = b2s_hmac(
             &chaining_key,
-            &ephemeral_private
-                .diffie_hellman(&self.params.peer_static_public)
-                .to_bytes(),
+            &diffie_hellman(ephemeral_private.as_bytes(), self.params.peer_static_public.as_bytes())
         );
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
