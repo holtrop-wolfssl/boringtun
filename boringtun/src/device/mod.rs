@@ -461,7 +461,7 @@ impl Device {
             return;
         }
 
-        let rate_limiter = Arc::new(RateLimiter::new(&public_key, HANDSHAKE_RATE_LIMIT));
+        let rate_limiter = Arc::new(RateLimiter::new(public_key.as_bytes(), HANDSHAKE_RATE_LIMIT));
 
         for peer in self.peers.values_mut() {
             peer.lock().tunnel.set_static_private(

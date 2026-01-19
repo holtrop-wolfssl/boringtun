@@ -52,7 +52,7 @@ pub struct RateLimiter {
 }
 
 impl RateLimiter {
-    pub fn new(public_key: &crate::x25519::PublicKey, limit: u64) -> Self {
+    pub fn new(public_key: &[u8], limit: u64) -> Self {
         let mut secret_key = [0u8; 16];
         OsRng.fill_bytes(&mut secret_key);
         RateLimiter {
@@ -60,8 +60,8 @@ impl RateLimiter {
             secret_key,
             start_time: Instant::now(),
             nonce_ctr: AtomicU64::new(0),
-            mac1_key: b2s_hash(LABEL_MAC1, public_key.as_bytes()),
-            cookie_key: b2s_hash(LABEL_COOKIE, public_key.as_bytes()).into(),
+            mac1_key: b2s_hash(LABEL_MAC1, public_key),
+            cookie_key: b2s_hash(LABEL_COOKIE, public_key).into(),
             limit,
             count: AtomicU64::new(0),
             last_reset: Mutex::new(Instant::now()),
