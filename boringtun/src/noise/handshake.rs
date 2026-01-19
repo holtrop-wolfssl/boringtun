@@ -12,6 +12,7 @@ use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
 use wolfssl_wolfcrypt::blake2::{BLAKE2s, BLAKE2sHmac};
 use wolfssl_wolfcrypt::chacha20_poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
+use wolfssl_wolfcrypt::curve25519::Curve25519Key;
 
 #[cfg(feature = "mock-instant")]
 use mock_instant::Instant;
@@ -230,7 +231,7 @@ struct HandshakeInitSentState {
     local_index: u32,
     hash: [u8; KEY_LEN],
     chaining_key: [u8; KEY_LEN],
-    ephemeral_private: x25519::ReusableSecret,
+    ephemeral_private: x25519::StaticSecret,
     time_sent: Instant,
 }
 
@@ -314,8 +315,8 @@ pub fn parse_handshake_anon(
         &[0x01],
     );
     // temp = HMAC(initiator.chaining_key, DH(initiator.ephemeral_private, responder.static_public))
-    let ephemeral_shared = static_private.diffie_hellman(&peer_ephemeral_public);
-    let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+    let ephemeral_shared = diffie_hellman(static_private.as_bytes(), peer_ephemeral_public.as_bytes());
+    let temp = b2s_hmac(&chaining_key, &ephemeral_shared);
     // initiator.chaining_key = HMAC(temp, 0x1)
     chaining_key = b2s_hmac(&temp, &[0x01]);
     // key = HMAC(temp, initiator.chaining_key || 0x2)
@@ -345,7 +346,8 @@ impl NoiseParams {
         peer_static_public: x25519::PublicKey,
         preshared_key: Option<[u8; 32]>,
     ) -> NoiseParams {
-        let static_shared = static_private.diffie_hellman(&peer_static_public);
+        let static_shared_bytes = diffie_hellman(static_private.as_bytes(), peer_static_public.as_bytes());
+        let static_shared = x25519::SharedSecret::new(static_shared_bytes);
 
         let initial_sending_mac_key = b2s_hash(LABEL_MAC1, peer_static_public.as_bytes());
 
@@ -372,7 +374,8 @@ impl NoiseParams {
         self.static_private = static_private;
         self.static_public = static_public;
 
-        self.static_shared = self.static_private.diffie_hellman(&self.peer_static_public);
+        let static_shared_bytes = diffie_hellman(self.static_private.as_bytes(), self.peer_static_public.as_bytes());
+        self.static_shared = x25519::SharedSecret::new(static_shared_bytes);
     }
 }
 
@@ -470,11 +473,8 @@ impl Handshake {
             &[0x01],
         );
         // temp = HMAC(initiator.chaining_key, DH(initiator.ephemeral_private, responder.static_public))
-        let ephemeral_shared = self
-            .params
-            .static_private
-            .diffie_hellman(&peer_ephemeral_public);
-        let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+        let ephemeral_shared = diffie_hellman(self.params.static_private.as_bytes(), peer_ephemeral_public.as_bytes());
+        let temp = b2s_hmac(&chaining_key, &ephemeral_shared);
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
         // key = HMAC(temp, initiator.chaining_key || 0x2)
@@ -554,10 +554,8 @@ impl Handshake {
         // responder.chaining_key = HMAC(temp, 0x1)
         let mut chaining_key = b2s_hmac(&temp, &[0x01]);
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.ephemeral_public))
-        let ephemeral_shared = state
-            .ephemeral_private
-            .diffie_hellman(&unencrypted_ephemeral);
-        let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+        let ephemeral_shared = diffie_hellman(state.ephemeral_private.as_bytes(), unencrypted_ephemeral.as_bytes());
+        let temp = b2s_hmac(&chaining_key, &ephemeral_shared);
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.static_public))
@@ -694,7 +692,7 @@ impl Handshake {
         let mut hash = INITIAL_CHAIN_HASH;
         hash = b2s_hash(&hash, self.params.peer_static_public.as_bytes());
         // initiator.ephemeral_private = DH_GENERATE()
-        let ephemeral_private = x25519::ReusableSecret::random_from_rng(OsRng);
+        let ephemeral_private = x25519::StaticSecret::random_from_rng(OsRng);
         // msg.message_type = 1
         // msg.reserved_zero = { 0, 0, 0 }
         message_type.copy_from_slice(&super::HANDSHAKE_INIT.to_le_bytes());
@@ -709,8 +707,8 @@ impl Handshake {
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&b2s_hmac(&chaining_key, unencrypted_ephemeral), &[0x01]);
         // temp = HMAC(initiator.chaining_key, DH(initiator.ephemeral_private, responder.static_public))
-        let ephemeral_shared = ephemeral_private.diffie_hellman(&self.params.peer_static_public);
-        let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+        let ephemeral_shared = diffie_hellman(ephemeral_private.as_bytes(), self.params.peer_static_public.as_bytes());
+        let temp = b2s_hmac(&chaining_key, &ephemeral_shared);
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
         // key = HMAC(temp, initiator.chaining_key || 0x2)
@@ -780,7 +778,7 @@ impl Handshake {
         let (encrypted_nothing, _) = rest.split_at_mut(16);
 
         // responder.ephemeral_private = DH_GENERATE()
-        let ephemeral_private = x25519::ReusableSecret::random_from_rng(OsRng);
+        let ephemeral_private = x25519::StaticSecret::random_from_rng(OsRng);
         let local_index = self.inc_index();
         // msg.message_type = 2
         // msg.reserved_zero = { 0, 0, 0 }
@@ -799,8 +797,8 @@ impl Handshake {
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.ephemeral_public))
-        let ephemeral_shared = ephemeral_private.diffie_hellman(&peer_ephemeral_public);
-        let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+        let ephemeral_shared = diffie_hellman(ephemeral_private.as_bytes(), peer_ephemeral_public.as_bytes());
+        let temp = b2s_hmac(&chaining_key, &ephemeral_shared);
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.static_public))
@@ -903,4 +901,12 @@ mod tests {
         aead_chacha20_open(&mut [], &key, counter, &encrypted_nothing, &aad)
             .expect("Should open what we just sealed");
     }
+}
+
+fn diffie_hellman(private: &[u8], public: &[u8]) -> [u8; 32] {
+    let mut shared_secret = [0u8; 32];
+    let mut private_key = Curve25519Key::import_private_ex(private, false).unwrap();
+    let mut public_key = Curve25519Key::import_public_ex(public, false).unwrap();
+    Curve25519Key::shared_secret_ex(&mut private_key, &mut public_key, &mut shared_secret, false).unwrap();
+    shared_secret
 }
