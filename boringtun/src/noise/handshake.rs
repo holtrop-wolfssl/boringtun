@@ -7,8 +7,6 @@ use crate::noise::session::Session;
 #[cfg(not(feature = "mock-instant"))]
 use crate::sleepyinstant::Instant;
 use crate::x25519;
-use blake2::digest::{FixedOutput, KeyInit};
-use blake2::Blake2sMac;
 use rand_core::OsRng;
 use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
