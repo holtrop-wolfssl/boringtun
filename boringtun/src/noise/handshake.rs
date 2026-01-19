@@ -693,8 +693,7 @@ impl Handshake {
         // msg.sender_index = little_endian(initiator.sender_index)
         sender_index.copy_from_slice(&local_index.to_le_bytes());
         // msg.unencrypted_ephemeral = DH_PUBKEY(initiator.ephemeral_private)
-        unencrypted_ephemeral
-            .copy_from_slice(x25519::PublicKey::from(&x25519::StaticSecret::from(ephemeral_private)).as_bytes());
+        dh_make_pub(&ephemeral_private, unencrypted_ephemeral);
         // initiator.hash = HASH(initiator.hash || msg.unencrypted_ephemeral)
         hash = b2s_hash(&hash, unencrypted_ephemeral);
         // temp = HMAC(initiator.chaining_key, msg.unencrypted_ephemeral)
@@ -782,8 +781,7 @@ impl Handshake {
         // msg.receiver_index = little_endian(initiator.sender_index)
         receiver_index.copy_from_slice(&peer_index.to_le_bytes());
         // msg.unencrypted_ephemeral = DH_PUBKEY(initiator.ephemeral_private)
-        unencrypted_ephemeral
-            .copy_from_slice(x25519::PublicKey::from(&x25519::StaticSecret::from(ephemeral_private)).as_bytes());
+        dh_make_pub(&ephemeral_private, unencrypted_ephemeral);
         // responder.hash = HASH(responder.hash || msg.unencrypted_ephemeral)
         hash = b2s_hash(&hash, unencrypted_ephemeral);
         // temp = HMAC(responder.chaining_key, msg.unencrypted_ephemeral)
@@ -901,6 +899,10 @@ fn dh_generate() -> [u8; 32] {
     let mut bytes = [0u8; 32];
     curve25519key.export_private_raw_ex(&mut bytes, false).unwrap();
     bytes
+}
+
+fn dh_make_pub(private: &[u8], public: &mut [u8]) {
+    Curve25519Key::make_pub(private, public).unwrap();
 }
 
 fn diffie_hellman(private: &[u8], public: &[u8]) -> [u8; 32] {
