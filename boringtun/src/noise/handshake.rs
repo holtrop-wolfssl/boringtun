@@ -207,7 +207,7 @@ struct NoiseParams {
     /// Static public key of the other party
     peer_static_public: x25519::PublicKey,
     /// A shared key = DH(static_private, peer_static_public)
-    static_shared: x25519::SharedSecret,
+    static_shared: [u8; 32],
     /// A pre-computation of HASH("mac1----", peer_static_public) for this peer
     sending_mac1_key: [u8; KEY_LEN],
     /// An optional preshared key
@@ -346,8 +346,7 @@ impl NoiseParams {
         peer_static_public: x25519::PublicKey,
         preshared_key: Option<[u8; 32]>,
     ) -> NoiseParams {
-        let static_shared_bytes = diffie_hellman(static_private.as_bytes(), peer_static_public.as_bytes());
-        let static_shared = x25519::SharedSecret::new(static_shared_bytes);
+        let static_shared = diffie_hellman(static_private.as_bytes(), peer_static_public.as_bytes());
 
         let initial_sending_mac_key = b2s_hash(LABEL_MAC1, peer_static_public.as_bytes());
 
@@ -374,8 +373,7 @@ impl NoiseParams {
         self.static_private = static_private;
         self.static_public = static_public;
 
-        let static_shared_bytes = diffie_hellman(self.static_private.as_bytes(), self.peer_static_public.as_bytes());
-        self.static_shared = x25519::SharedSecret::new(static_shared_bytes);
+        self.static_shared = diffie_hellman(self.static_private.as_bytes(), self.peer_static_public.as_bytes());
     }
 }
 
@@ -499,7 +497,7 @@ impl Handshake {
         // initiator.hash = HASH(initiator.hash || msg.encrypted_static)
         hash = b2s_hash(&hash, packet.encrypted_static);
         // temp = HMAC(initiator.chaining_key, DH(initiator.static_private, responder.static_public))
-        let temp = b2s_hmac(&chaining_key, self.params.static_shared.as_bytes());
+        let temp = b2s_hmac(&chaining_key, &self.params.static_shared);
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
         // key = HMAC(temp, initiator.chaining_key || 0x2)
@@ -724,7 +722,7 @@ impl Handshake {
         // initiator.hash = HASH(initiator.hash || msg.encrypted_static)
         hash = b2s_hash(&hash, encrypted_static);
         // temp = HMAC(initiator.chaining_key, DH(initiator.static_private, responder.static_public))
-        let temp = b2s_hmac(&chaining_key, self.params.static_shared.as_bytes());
+        let temp = b2s_hmac(&chaining_key, &self.params.static_shared);
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
         // key = HMAC(temp, initiator.chaining_key || 0x2)
