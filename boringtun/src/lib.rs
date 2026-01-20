@@ -23,10 +23,6 @@ pub mod x25519 {
     use wolfssl_wolfcrypt::curve25519::Curve25519Key;
     use wolfssl_wolfcrypt::random::RNG;
 
-    pub use x25519_dalek::{
-        PublicKey, StaticSecret,
-    };
-
     pub fn dh_generate() -> [u8; 32] {
         let mut rng = RNG::new().unwrap();
         let mut curve25519key = Curve25519Key::generate(&mut rng).unwrap();
