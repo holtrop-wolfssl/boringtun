@@ -6,10 +6,9 @@
 #[cfg(all(test, not(target_os = "macos")))]
 mod tests {
     use crate::device::{DeviceConfig, DeviceHandle};
-    use crate::x25519::{PublicKey, StaticSecret};
+    use crate::x25519;
     use base64::encode as base64encode;
     use hex::encode;
-    use rand_core::OsRng;
     use ring::rand::{SecureRandom, SystemRandom};
     use std::fmt::Write as _;
     use std::io::{BufRead, BufReader, Read, Write};
@@ -50,7 +49,7 @@ mod tests {
 
     /// Represents a single peer running in a container
     struct Peer {
-        key: StaticSecret,
+        key: [u8; 32],
         endpoint: SocketAddr,
         allowed_ips: Vec<AllowedIp>,
         container_name: Option<String>,
@@ -87,7 +86,7 @@ mod tests {
         /// Create a new peer with a given endpoint and a list of allowed IPs
         fn new(endpoint: SocketAddr, allowed_ips: Vec<AllowedIp>) -> Peer {
             Peer {
-                key: StaticSecret::random_from_rng(OsRng),
+                key: x25519::dh_generate(),
                 endpoint,
                 allowed_ips,
                 container_name: None,
@@ -97,7 +96,7 @@ mod tests {
         /// Creates a new configuration file that can be used by wg-quick
         fn gen_wg_conf(
             &self,
-            local_key: &PublicKey,
+            local_key: &[u8],
             local_addr: &IpAddr,
             local_port: u16,
         ) -> String {
@@ -110,11 +109,11 @@ mod tests {
             // The local endpoint port is the remote listen port
             let _ = writeln!(conf, "ListenPort = {}", self.endpoint.port());
             // HACK: this should consume the key so it can't be reused instead of cloning and serializing
-            let _ = writeln!(conf, "PrivateKey = {}", base64encode(self.key.to_bytes()));
+            let _ = writeln!(conf, "PrivateKey = {}", base64encode(self.key));
 
             // We are the peer
             let _ = writeln!(conf, "[Peer]");
-            let _ = writeln!(conf, "PublicKey = {}", base64encode(local_key.as_bytes()));
+            let _ = writeln!(conf, "PublicKey = {}", base64encode(local_key));
             let _ = writeln!(conf, "AllowedIPs = {}", local_addr);
             let _ = write!(conf, "Endpoint = 127.0.0.1:{}", local_port);
 
@@ -131,13 +130,13 @@ mod tests {
                  return 200 '{}';\n\
                  }}\n\
                  }}",
-                encode(PublicKey::from(&self.key).as_bytes())
+                encode(&x25519::dh_make_pub(&self.key))
             )
         }
 
         fn start_in_container(
             &mut self,
-            local_key: &PublicKey,
+            local_key: &[u8],
             local_addr: &IpAddr,
             local_port: u16,
         ) {
@@ -423,18 +422,18 @@ mod tests {
         }
 
         /// Assign a private_key to the interface
-        fn wg_set_key(&self, key: StaticSecret) -> String {
-            self.wg_set(&format!("private_key={}", encode(key.to_bytes())))
+        fn wg_set_key(&self, key: [u8; 32]) -> String {
+            self.wg_set(&format!("private_key={}", encode(&key)))
         }
 
         /// Assign a peer to the interface (with public_key, endpoint and a series of nallowed_ip)
         fn wg_set_peer(
             &self,
-            key: &PublicKey,
+            key: &[u8],
             ep: &SocketAddr,
             allowed_ips: &[AllowedIp],
         ) -> String {
-            let mut req = format!("public_key={}\nendpoint={}", encode(key.as_bytes()), ep);
+            let mut req = format!("public_key={}\nendpoint={}", encode(key), ep);
             for AllowedIp { ip, cidr } in allowed_ips {
                 let _ = write!(req, "\nallowed_ip={}/{}", ip, cidr);
             }
@@ -445,7 +444,7 @@ mod tests {
         /// Add a new known peer
         fn add_peer(&mut self, peer: Arc<Peer>) {
             self.wg_set_peer(
-                &PublicKey::from(&peer.key),
+                &x25519::dh_make_pub(&peer.key),
                 &peer.endpoint,
                 &peer.allowed_ips,
             );
@@ -476,8 +475,8 @@ mod tests {
     /// Test if wireguard starts and creates a unix socket that we can use to set settings
     fn test_wireguard_set() {
         let port = next_port();
-        let private_key = StaticSecret::random_from_rng(OsRng);
-        let own_public_key = PublicKey::from(&private_key);
+        let private_key = x25519::dh_generate();
+        let own_public_key = x25519::dh_make_pub(&private_key);
 
         let wg = WGHandle::init("192.0.2.0".parse().unwrap(), "::2".parse().unwrap());
         assert!(wg.wg_get().ends_with("errno=0\n\n"));
@@ -489,13 +488,13 @@ mod tests {
             wg.wg_get(),
             format!(
                 "own_public_key={}\nlisten_port={}\nerrno=0\n\n",
-                encode(own_public_key.as_bytes()),
+                encode(&own_public_key),
                 port
             )
         );
 
-        let peer_key = StaticSecret::random_from_rng(OsRng);
-        let peer_pub_key = PublicKey::from(&peer_key);
+        let peer_key = x25519::dh_generate();
+        let peer_pub_key = x25519::dh_make_pub(&peer_key);
         let endpoint = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(172, 0, 0, 1)), 50001);
         let allowed_ips = [
             AllowedIp {
@@ -526,9 +525,9 @@ mod tests {
                  rx_bytes=0\n\
                  tx_bytes=0\n\
                  errno=0\n\n",
-                encode(own_public_key.as_bytes()),
+                encode(&own_public_key),
                 port,
-                encode(peer_pub_key.as_bytes()),
+                encode(&peer_pub_key),
                 endpoint,
                 allowed_ips[0].ip,
                 allowed_ips[0].cidr,
@@ -543,8 +542,8 @@ mod tests {
     #[ignore]
     fn test_wg_start_ipv4_non_connected() {
         let port = next_port();
-        let private_key = StaticSecret::random_from_rng(OsRng);
-        let public_key = PublicKey::from(&private_key);
+        let private_key = x25519::dh_generate();
+        let public_key = x25519::dh_make_pub(&private_key);
         let addr_v4 = next_ip();
         let addr_v6 = next_ip_v6();
 
@@ -582,7 +581,7 @@ mod tests {
 
         let response = peer.get_request();
 
-        assert_eq!(response, encode(PublicKey::from(&peer.key).as_bytes()));
+        assert_eq!(response, encode(&x25519::dh_make_pub(&peer.key)));
     }
 
     /// Test if wireguard can handle simple ipv4 connections
@@ -590,8 +589,8 @@ mod tests {
     #[ignore]
     fn test_wg_start_ipv4() {
         let port = next_port();
-        let private_key = StaticSecret::random_from_rng(OsRng);
-        let public_key = PublicKey::from(&private_key);
+        let private_key = x25519::dh_generate();
+        let public_key = x25519::dh_make_pub(&private_key);
         let addr_v4 = next_ip();
         let addr_v6 = next_ip_v6();
 
@@ -618,7 +617,7 @@ mod tests {
 
         let response = peer.get_request();
 
-        assert_eq!(response, encode(PublicKey::from(&peer.key).as_bytes()));
+        assert_eq!(response, encode(&x25519::dh_make_pub(&peer.key)));
     }
 
     #[test]
@@ -626,8 +625,8 @@ mod tests {
     /// Test if wireguard can handle simple ipv6 connections
     fn test_wg_start_ipv6() {
         let port = next_port();
-        let private_key = StaticSecret::random_from_rng(OsRng);
-        let public_key = PublicKey::from(&private_key);
+        let private_key = x25519::dh_generate();
+        let public_key = x25519::dh_make_pub(&private_key);
         let addr_v4 = next_ip();
         let addr_v6 = next_ip_v6();
 
@@ -653,7 +652,7 @@ mod tests {
 
         let response = peer.get_request();
 
-        assert_eq!(response, encode(PublicKey::from(&peer.key).as_bytes()));
+        assert_eq!(response, encode(&x25519::dh_make_pub(&peer.key)));
     }
 
     /// Test if wireguard can handle connection with an ipv6 endpoint
@@ -662,8 +661,8 @@ mod tests {
     #[cfg(target_os = "linux")] // Can't make docker work with ipv6 on macOS ATM
     fn test_wg_start_ipv6_endpoint() {
         let port = next_port();
-        let private_key = StaticSecret::random_from_rng(OsRng);
-        let public_key = PublicKey::from(&private_key);
+        let private_key = x25519::dh_generate();
+        let public_key = x25519::dh_make_pub(&private_key);
         let addr_v4 = next_ip();
         let addr_v6 = next_ip_v6();
 
@@ -692,7 +691,7 @@ mod tests {
 
         let response = peer.get_request();
 
-        assert_eq!(response, encode(PublicKey::from(&peer.key).as_bytes()));
+        assert_eq!(response, encode(&x25519::dh_make_pub(&peer.key)));
     }
 
     /// Test if wireguard can handle connection with an ipv6 endpoint
@@ -701,8 +700,8 @@ mod tests {
     #[cfg(target_os = "linux")] // Can't make docker work with ipv6 on macOS ATM
     fn test_wg_start_ipv6_endpoint_not_connected() {
         let port = next_port();
-        let private_key = StaticSecret::random_from_rng(OsRng);
-        let public_key = PublicKey::from(&private_key);
+        let private_key = x25519::dh_generate();
+        let public_key = x25519::dh_make_pub(&private_key);
         let addr_v4 = next_ip();
         let addr_v6 = next_ip_v6();
 
@@ -742,7 +741,7 @@ mod tests {
 
         let response = peer.get_request();
 
-        assert_eq!(response, encode(PublicKey::from(&peer.key).as_bytes()));
+        assert_eq!(response, encode(&x25519::dh_make_pub(&peer.key)));
     }
 
     /// Test many concurrent connections
@@ -750,8 +749,8 @@ mod tests {
     #[ignore]
     fn test_wg_concurrent() {
         let port = next_port();
-        let private_key = StaticSecret::random_from_rng(OsRng);
-        let public_key = PublicKey::from(&private_key);
+        let private_key = x25519::dh_generate();
+        let public_key = x25519::dh_make_pub(&private_key);
         let addr_v4 = next_ip();
         let addr_v6 = next_ip_v6();
 
@@ -782,11 +781,11 @@ mod tests {
         let mut threads = vec![];
 
         for p in wg.peers {
-            let pub_key = PublicKey::from(&p.key);
+            let pub_key = x25519::dh_make_pub(&p.key);
             threads.push(thread::spawn(move || {
                 for _ in 0..100 {
                     let response = p.get_request();
-                    assert_eq!(response, encode(pub_key.as_bytes()));
+                    assert_eq!(response, encode(&pub_key));
                 }
             }));
         }
@@ -801,8 +800,8 @@ mod tests {
     #[ignore]
     fn test_wg_concurrent_v6() {
         let port = next_port();
-        let private_key = StaticSecret::random_from_rng(OsRng);
-        let public_key = PublicKey::from(&private_key);
+        let private_key = x25519::dh_generate();
+        let public_key = x25519::dh_make_pub(&private_key);
         let addr_v4 = next_ip();
         let addr_v6 = next_ip_v6();
 
@@ -833,11 +832,11 @@ mod tests {
         let mut threads = vec![];
 
         for p in wg.peers {
-            let pub_key = PublicKey::from(&p.key);
+            let pub_key = x25519::dh_make_pub(&p.key);
             threads.push(thread::spawn(move || {
                 for _ in 0..100 {
                     let response = p.get_request();
-                    assert_eq!(response, encode(pub_key.as_bytes()));
+                    assert_eq!(response, encode(&pub_key));
                 }
             }));
         }
