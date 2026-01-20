@@ -157,7 +157,7 @@ impl Device {
 fn api_get(writer: &mut BufWriter<&UnixStream>, d: &Device) -> i32 {
     // get command requires an empty line, but there is no reason to be religious about it
     if let Some(ref k) = d.key_pair {
-        writeln!(writer, "own_public_key={}", encode_hex(k.1.as_bytes()));
+        writeln!(writer, "own_public_key={}", encode_hex(&k.1));
     }
 
     if d.listen_port != 0 {
@@ -170,7 +170,7 @@ fn api_get(writer: &mut BufWriter<&UnixStream>, d: &Device) -> i32 {
 
     for (k, p) in d.peers.iter() {
         let p = p.lock();
-        writeln!(writer, "public_key={}", encode_hex(k.as_bytes()));
+        writeln!(writer, "public_key={}", encode_hex(&k));
 
         if let Some(ref key) = p.preshared_key() {
             writeln!(writer, "preshared_key={}", encode_hex(key));
@@ -294,7 +294,7 @@ fn api_set_peer(
         cmd.pop(); // remove newline if any
         if cmd.is_empty() {
             d.update_peer(
-                public_key,
+                public_key.to_bytes(),
                 remove,
                 replace_ips,
                 endpoint,
@@ -341,7 +341,7 @@ fn api_set_peer(
                 "public_key" => {
                     // Indicates a new peer section. Commit changes for current peer, and continue to next peer
                     d.update_peer(
-                        public_key,
+                        public_key.to_bytes(),
                         remove,
                         replace_ips,
                         endpoint,

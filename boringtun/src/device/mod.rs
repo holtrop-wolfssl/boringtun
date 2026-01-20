@@ -37,6 +37,7 @@ use std::thread::JoinHandle;
 
 use crate::noise::errors::WireGuardError;
 use crate::noise::handshake::parse_handshake_anon;
+use crate::noise::handshake::dh_make_pub;
 use crate::noise::rate_limiter::RateLimiter;
 use crate::noise::{Packet, Tunn, TunnResult};
 use crate::x25519;
@@ -130,7 +131,7 @@ impl Default for DeviceConfig {
 }
 
 pub struct Device {
-    key_pair: Option<([u8; 32], x25519::PublicKey)>,
+    key_pair: Option<([u8; 32], [u8; 32])>,
     queue: Arc<EventPoll<Handler>>,
 
     listen_port: u16,
@@ -143,7 +144,7 @@ pub struct Device {
     yield_notice: Option<EventRef>,
     exit_notice: Option<EventRef>,
 
-    peers: HashMap<x25519::PublicKey, Arc<Mutex<Peer>>>,
+    peers: HashMap<[u8; 32], Arc<Mutex<Peer>>>,
     peers_by_ip: AllowedIps<Arc<Mutex<Peer>>>,
     peers_by_idx: HashMap<u32, Arc<Mutex<Peer>>>,
     next_index: IndexLfsr,
@@ -284,7 +285,7 @@ impl Device {
         self.next_index.next()
     }
 
-    fn remove_peer(&mut self, pub_key: &x25519::PublicKey) {
+    fn remove_peer(&mut self, pub_key: &[u8]) {
         if let Some(peer) = self.peers.remove(pub_key) {
             // Found a peer to remove, now purge all references to it:
             {
@@ -302,7 +303,7 @@ impl Device {
     #[allow(clippy::too_many_arguments)]
     fn update_peer(
         &mut self,
-        pub_key: x25519::PublicKey,
+        pub_key: [u8; 32],
         remove: bool,
         _replace_ips: bool,
         endpoint: Option<SocketAddr>,
@@ -452,7 +453,8 @@ impl Device {
     }
 
     fn set_key(&mut self, private_key: [u8; 32]) {
-        let public_key = x25519::PublicKey::from(&x25519::StaticSecret::from(private_key));
+        let mut public_key = [0u8; 32];
+        dh_make_pub(&private_key, &mut public_key);
         let key_pair = Some((private_key, public_key));
 
         // x25519 (rightly) doesn't let us expose secret keys for comparison.
@@ -461,7 +463,7 @@ impl Device {
             return;
         }
 
-        let rate_limiter = Arc::new(RateLimiter::new(public_key.as_bytes(), HANDSHAKE_RATE_LIMIT));
+        let rate_limiter = Arc::new(RateLimiter::new(&public_key, HANDSHAKE_RATE_LIMIT));
 
         for peer in self.peers.values_mut() {
             peer.lock().tunnel.set_static_private(
@@ -627,7 +629,7 @@ impl Device {
                             parse_handshake_anon(private_key, public_key, p)
                                 .ok()
                                 .and_then(|hh| {
-                                    d.peers.get(&x25519::PublicKey::from(hh.peer_static_public))
+                                    d.peers.get(&hh.peer_static_public)
                                 })
                         }
                         Packet::HandshakeResponse(p) => d.peers_by_idx.get(&(p.receiver_idx >> 8)),

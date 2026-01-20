@@ -10,6 +10,7 @@ mod timers;
 
 use crate::noise::errors::WireGuardError;
 use crate::noise::handshake::Handshake;
+use crate::noise::handshake::dh_make_pub;
 use crate::noise::rate_limiter::RateLimiter;
 use crate::noise::timers::{TimerName, Timers};
 use crate::x25519;
@@ -193,13 +194,14 @@ impl Tunn {
     /// Create a new tunnel using own private key and the peer public key
     pub fn new(
         static_private: [u8; 32],
-        peer_static_public: x25519::PublicKey,
+        peer_static_public: [u8; 32],
         preshared_key: Option<[u8; 32]>,
         persistent_keepalive: Option<u16>,
         index: u32,
         rate_limiter: Option<Arc<RateLimiter>>,
     ) -> Self {
-        let static_public = x25519::PublicKey::from(&x25519::StaticSecret::from(static_private));
+        let mut static_public = [0u8; 32];
+        dh_make_pub(&static_private, &mut static_public);
 
         Tunn {
             handshake: Handshake::new(
@@ -218,7 +220,7 @@ impl Tunn {
             timers: Timers::new(persistent_keepalive, rate_limiter.is_none()),
 
             rate_limiter: rate_limiter.unwrap_or_else(|| {
-                Arc::new(RateLimiter::new(static_public.as_bytes(), PEER_HANDSHAKE_RATE_LIMIT))
+                Arc::new(RateLimiter::new(&static_public, PEER_HANDSHAKE_RATE_LIMIT))
             }),
         }
     }
@@ -227,12 +229,12 @@ impl Tunn {
     pub fn set_static_private(
         &mut self,
         static_private: [u8; 32],
-        static_public: x25519::PublicKey,
+        static_public: [u8; 32],
         rate_limiter: Option<Arc<RateLimiter>>,
     ) {
         self.timers.should_reset_rr = rate_limiter.is_none();
         self.rate_limiter = rate_limiter.unwrap_or_else(|| {
-            Arc::new(RateLimiter::new(static_public.as_bytes(), PEER_HANDSHAKE_RATE_LIMIT))
+            Arc::new(RateLimiter::new(&static_public, PEER_HANDSHAKE_RATE_LIMIT))
         });
         self.handshake
             .set_static_private(static_private, static_public);
