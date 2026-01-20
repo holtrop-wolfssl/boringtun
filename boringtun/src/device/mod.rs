@@ -452,7 +452,7 @@ impl Device {
     }
 
     fn set_key(&mut self, private_key: [u8; 32]) {
-        let mut public_key = x25519::dh_make_pub(&private_key);
+        let public_key = x25519::dh_make_pub(&private_key);
         let key_pair = Some((private_key, public_key));
 
         // If the public keys are the same, then the private keys are the same.

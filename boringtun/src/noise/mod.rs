@@ -199,7 +199,7 @@ impl Tunn {
         index: u32,
         rate_limiter: Option<Arc<RateLimiter>>,
     ) -> Self {
-        let mut static_public = x25519::dh_make_pub(&static_private);
+        let static_public = x25519::dh_make_pub(&static_private);
 
         Tunn {
             handshake: Handshake::new(
