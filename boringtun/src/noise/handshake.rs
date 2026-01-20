@@ -12,7 +12,6 @@ use std::time::{Duration, SystemTime};
 use wolfssl_wolfcrypt::blake2::{BLAKE2s, BLAKE2sHmac};
 use wolfssl_wolfcrypt::chacha20_poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
 use wolfssl_wolfcrypt::curve25519::Curve25519Key;
-use wolfssl_wolfcrypt::random::RNG;
 
 #[cfg(feature = "mock-instant")]
 use mock_instant::Instant;
@@ -686,7 +685,7 @@ impl Handshake {
         let mut hash = INITIAL_CHAIN_HASH;
         hash = b2s_hash(&hash, &self.params.peer_static_public);
         // initiator.ephemeral_private = DH_GENERATE()
-        let ephemeral_private = dh_generate();
+        let ephemeral_private = x25519::dh_generate();
         // msg.message_type = 1
         // msg.reserved_zero = { 0, 0, 0 }
         message_type.copy_from_slice(&super::HANDSHAKE_INIT.to_le_bytes());
@@ -771,7 +770,7 @@ impl Handshake {
         let (encrypted_nothing, _) = rest.split_at_mut(16);
 
         // responder.ephemeral_private = DH_GENERATE()
-        let ephemeral_private = dh_generate();
+        let ephemeral_private = x25519::dh_generate();
         let local_index = self.inc_index();
         // msg.message_type = 2
         // msg.reserved_zero = { 0, 0, 0 }
@@ -891,14 +890,6 @@ mod tests {
         aead_chacha20_open(&mut [], &key, counter, &encrypted_nothing, &aad)
             .expect("Should open what we just sealed");
     }
-}
-
-fn dh_generate() -> [u8; 32] {
-    let mut rng = RNG::new().unwrap();
-    let mut curve25519key = Curve25519Key::generate(&mut rng).unwrap();
-    let mut bytes = [0u8; 32];
-    curve25519key.export_private_raw_ex(&mut bytes, false).unwrap();
-    bytes
 }
 
 fn diffie_hellman(private: &[u8], public: &[u8]) -> [u8; 32] {

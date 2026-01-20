@@ -7,7 +7,7 @@
 
 //! C bindings for the BoringTun library
 use super::noise::{Tunn, TunnResult};
-use crate::x25519::{PublicKey, StaticSecret};
+use crate::x25519;
 use base64::{decode, encode};
 use hex::encode as encode_hex;
 use libc::{raise, SIGSEGV};
@@ -99,17 +99,15 @@ pub struct x25519_key {
 #[no_mangle]
 pub extern "C" fn x25519_secret_key() -> x25519_key {
     x25519_key {
-        key: StaticSecret::random_from_rng(OsRng).to_bytes(),
+        key: x25519::dh_generate(),
     }
 }
 
 /// Computes a public x25519 key from a secret key.
 #[no_mangle]
 pub extern "C" fn x25519_public_key(private_key: x25519_key) -> x25519_key {
-    let private = StaticSecret::from(private_key.key);
-    let public = PublicKey::from(&private);
     x25519_key {
-        key: public.to_bytes(),
+        key: x25519::dh_make_pub(&private_key.key),
     }
 }
 
@@ -278,12 +276,12 @@ pub unsafe extern "C" fn new_tunnel(
 
     let private_key = match static_private.parse::<KeyBytes>() {
         Err(_) => return ptr::null_mut(),
-        Ok(key) => StaticSecret::from(key.0),
+        Ok(key) => key.0,
     };
 
     let public_key = match server_static_public.parse::<KeyBytes>() {
         Err(_) => return ptr::null_mut(),
-        Ok(key) => PublicKey::from(key.0),
+        Ok(key) => key.0,
     };
 
     let keep_alive = if keep_alive == 0 {
