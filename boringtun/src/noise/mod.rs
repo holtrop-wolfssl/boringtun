@@ -10,9 +10,9 @@ mod timers;
 
 use crate::noise::errors::WireGuardError;
 use crate::noise::handshake::Handshake;
-use crate::noise::handshake::dh_make_pub;
 use crate::noise::rate_limiter::RateLimiter;
 use crate::noise::timers::{TimerName, Timers};
+use crate::x25519;
 
 use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
@@ -199,8 +199,7 @@ impl Tunn {
         index: u32,
         rate_limiter: Option<Arc<RateLimiter>>,
     ) -> Self {
-        let mut static_public = [0u8; 32];
-        dh_make_pub(&static_private, &mut static_public);
+        let mut static_public = x25519::dh_make_pub(&static_private);
 
         Tunn {
             handshake: Handshake::new(

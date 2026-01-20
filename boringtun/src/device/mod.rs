@@ -37,9 +37,9 @@ use std::thread::JoinHandle;
 
 use crate::noise::errors::WireGuardError;
 use crate::noise::handshake::parse_handshake_anon;
-use crate::noise::handshake::dh_make_pub;
 use crate::noise::rate_limiter::RateLimiter;
 use crate::noise::{Packet, Tunn, TunnResult};
+use crate::x25519;
 use allowed_ips::AllowedIps;
 use parking_lot::Mutex;
 use peer::{AllowedIP, Peer};
@@ -452,8 +452,7 @@ impl Device {
     }
 
     fn set_key(&mut self, private_key: [u8; 32]) {
-        let mut public_key = [0u8; 32];
-        dh_make_pub(&private_key, &mut public_key);
+        let mut public_key = x25519::dh_make_pub(&private_key);
         let key_pair = Some((private_key, public_key));
 
         // If the public keys are the same, then the private keys are the same.

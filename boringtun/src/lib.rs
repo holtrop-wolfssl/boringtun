@@ -19,9 +19,16 @@ pub(crate) mod sleepyinstant;
 
 pub(crate) mod serialization;
 
-/// Re-export of the x25519 types
 pub mod x25519 {
+    use wolfssl_wolfcrypt::curve25519::Curve25519Key;
+
     pub use x25519_dalek::{
         PublicKey, StaticSecret,
     };
+
+    pub fn dh_make_pub(private: &[u8]) -> [u8; 32] {
+        let mut public = [0u8; 32];
+        Curve25519Key::make_pub(private, &mut public).unwrap();
+        public
+    }
 }

@@ -6,6 +6,7 @@ use crate::noise::errors::WireGuardError;
 use crate::noise::session::Session;
 #[cfg(not(feature = "mock-instant"))]
 use crate::sleepyinstant::Instant;
+use crate::x25519;
 use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
 use wolfssl_wolfcrypt::blake2::{BLAKE2s, BLAKE2sHmac};
@@ -366,8 +367,7 @@ impl NoiseParams {
         static_public: [u8; KEY_LEN],
     ) {
         // Check that the public key indeed matches the private key
-        let mut check_key = [0u8; 32];
-        dh_make_pub(&static_private, &mut check_key);
+        let check_key = x25519::dh_make_pub(&static_private);
         assert_eq!(check_key, static_public);
 
         self.static_private = static_private;
@@ -693,7 +693,7 @@ impl Handshake {
         // msg.sender_index = little_endian(initiator.sender_index)
         sender_index.copy_from_slice(&local_index.to_le_bytes());
         // msg.unencrypted_ephemeral = DH_PUBKEY(initiator.ephemeral_private)
-        dh_make_pub(&ephemeral_private, unencrypted_ephemeral);
+        unencrypted_ephemeral.copy_from_slice(&x25519::dh_make_pub(&ephemeral_private));
         // initiator.hash = HASH(initiator.hash || msg.unencrypted_ephemeral)
         hash = b2s_hash(&hash, unencrypted_ephemeral);
         // temp = HMAC(initiator.chaining_key, msg.unencrypted_ephemeral)
@@ -781,7 +781,7 @@ impl Handshake {
         // msg.receiver_index = little_endian(initiator.sender_index)
         receiver_index.copy_from_slice(&peer_index.to_le_bytes());
         // msg.unencrypted_ephemeral = DH_PUBKEY(initiator.ephemeral_private)
-        dh_make_pub(&ephemeral_private, unencrypted_ephemeral);
+        unencrypted_ephemeral.copy_from_slice(&x25519::dh_make_pub(&ephemeral_private));
         // responder.hash = HASH(responder.hash || msg.unencrypted_ephemeral)
         hash = b2s_hash(&hash, unencrypted_ephemeral);
         // temp = HMAC(responder.chaining_key, msg.unencrypted_ephemeral)
@@ -899,10 +899,6 @@ fn dh_generate() -> [u8; 32] {
     let mut bytes = [0u8; 32];
     curve25519key.export_private_raw_ex(&mut bytes, false).unwrap();
     bytes
-}
-
-pub fn dh_make_pub(private: &[u8], public: &mut [u8]) {
-    Curve25519Key::make_pub(private, public).unwrap();
 }
 
 fn diffie_hellman(private: &[u8], public: &[u8]) -> [u8; 32] {
