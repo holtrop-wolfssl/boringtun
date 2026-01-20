@@ -6,7 +6,6 @@ use crate::noise::errors::WireGuardError;
 use crate::noise::session::Session;
 #[cfg(not(feature = "mock-instant"))]
 use crate::sleepyinstant::Instant;
-use crate::x25519;
 use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
 use wolfssl_wolfcrypt::blake2::{BLAKE2s, BLAKE2sHmac};

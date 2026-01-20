@@ -13,7 +13,6 @@ use crate::noise::handshake::Handshake;
 use crate::noise::handshake::dh_make_pub;
 use crate::noise::rate_limiter::RateLimiter;
 use crate::noise::timers::{TimerName, Timers};
-use crate::x25519;
 
 use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};

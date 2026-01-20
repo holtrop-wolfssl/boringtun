@@ -40,7 +40,6 @@ use crate::noise::handshake::parse_handshake_anon;
 use crate::noise::handshake::dh_make_pub;
 use crate::noise::rate_limiter::RateLimiter;
 use crate::noise::{Packet, Tunn, TunnResult};
-use crate::x25519;
 use allowed_ips::AllowedIps;
 use parking_lot::Mutex;
 use peer::{AllowedIP, Peer};
@@ -457,7 +456,6 @@ impl Device {
         dh_make_pub(&private_key, &mut public_key);
         let key_pair = Some((private_key, public_key));
 
-        // x25519 (rightly) doesn't let us expose secret keys for comparison.
         // If the public keys are the same, then the private keys are the same.
         if Some(&public_key) == self.key_pair.as_ref().map(|p| &p.1) {
             return;
