@@ -6,7 +6,6 @@ use super::drop_privileges::get_saved_ids;
 use super::{AllowedIP, Device, Error, SocketAddr};
 use crate::device::Action;
 use crate::serialization::KeyBytes;
-use crate::x25519;
 use hex::encode as encode_hex;
 use libc::*;
 use std::fs::{create_dir, remove_file};
@@ -259,7 +258,7 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
                                 return api_set_peer(
                                     reader,
                                     device,
-                                    x25519::PublicKey::from(key_bytes.0),
+                                    key_bytes.0,
                                 )
                             }
                             Err(_) => return EINVAL,
@@ -279,7 +278,7 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
 fn api_set_peer(
     reader: &mut BufReader<&UnixStream>,
     d: &mut Device,
-    pub_key: x25519::PublicKey,
+    pub_key: [u8; 32],
 ) -> i32 {
     let mut cmd = String::new();
 
@@ -294,7 +293,7 @@ fn api_set_peer(
         cmd.pop(); // remove newline if any
         if cmd.is_empty() {
             d.update_peer(
-                public_key.to_bytes(),
+                public_key,
                 remove,
                 replace_ips,
                 endpoint,
@@ -341,7 +340,7 @@ fn api_set_peer(
                 "public_key" => {
                     // Indicates a new peer section. Commit changes for current peer, and continue to next peer
                     d.update_peer(
-                        public_key.to_bytes(),
+                        public_key,
                         remove,
                         replace_ips,
                         endpoint,
