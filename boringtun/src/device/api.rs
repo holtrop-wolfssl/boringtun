@@ -225,7 +225,7 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
                     match key {
                         "private_key" => match val.parse::<KeyBytes>() {
                             Ok(key_bytes) => {
-                                device.set_key(x25519::StaticSecret::from(key_bytes.0))
+                                device.set_key(key_bytes.0)
                             }
                             Err(_) => return EINVAL,
                         },

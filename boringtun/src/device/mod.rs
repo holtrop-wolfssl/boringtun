@@ -130,7 +130,7 @@ impl Default for DeviceConfig {
 }
 
 pub struct Device {
-    key_pair: Option<(x25519::StaticSecret, x25519::PublicKey)>,
+    key_pair: Option<([u8; 32], x25519::PublicKey)>,
     queue: Arc<EventPoll<Handler>>,
 
     listen_port: u16,
@@ -328,7 +328,7 @@ impl Device {
             .expect("Private key must be set first");
 
         let tunn = Tunn::new(
-            device_key_pair.0.clone(),
+            device_key_pair.0,
             pub_key,
             preshared_key,
             keepalive,
@@ -451,9 +451,9 @@ impl Device {
         Ok(())
     }
 
-    fn set_key(&mut self, private_key: x25519::StaticSecret) {
-        let public_key = x25519::PublicKey::from(&private_key);
-        let key_pair = Some((private_key.clone(), public_key));
+    fn set_key(&mut self, private_key: [u8; 32]) {
+        let public_key = x25519::PublicKey::from(&x25519::StaticSecret::from(private_key));
+        let key_pair = Some((private_key, public_key));
 
         // x25519 (rightly) doesn't let us expose secret keys for comparison.
         // If the public keys are the same, then the private keys are the same.
@@ -465,7 +465,7 @@ impl Device {
 
         for peer in self.peers.values_mut() {
             peer.lock().tunnel.set_static_private(
-                private_key.clone(),
+                private_key,
                 public_key,
                 Some(Arc::clone(&rate_limiter)),
             )

@@ -192,14 +192,14 @@ impl Tunn {
 
     /// Create a new tunnel using own private key and the peer public key
     pub fn new(
-        static_private: x25519::StaticSecret,
+        static_private: [u8; 32],
         peer_static_public: x25519::PublicKey,
         preshared_key: Option<[u8; 32]>,
         persistent_keepalive: Option<u16>,
         index: u32,
         rate_limiter: Option<Arc<RateLimiter>>,
     ) -> Self {
-        let static_public = x25519::PublicKey::from(&static_private);
+        let static_public = x25519::PublicKey::from(&x25519::StaticSecret::from(static_private));
 
         Tunn {
             handshake: Handshake::new(
@@ -226,7 +226,7 @@ impl Tunn {
     /// Update the private key and clear existing sessions
     pub fn set_static_private(
         &mut self,
-        static_private: x25519::StaticSecret,
+        static_private: [u8; 32],
         static_public: x25519::PublicKey,
         rate_limiter: Option<Arc<RateLimiter>>,
     ) {

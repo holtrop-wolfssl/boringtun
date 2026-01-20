@@ -203,11 +203,11 @@ struct NoiseParams {
     /// Our static public key
     static_public: x25519::PublicKey,
     /// Our static private key
-    static_private: x25519::StaticSecret,
+    static_private: [u8; KEY_LEN],
     /// Static public key of the other party
     peer_static_public: x25519::PublicKey,
     /// A shared key = DH(static_private, peer_static_public)
-    static_shared: [u8; 32],
+    static_shared: [u8; KEY_LEN],
     /// A pre-computation of HASH("mac1----", peer_static_public) for this peer
     sending_mac1_key: [u8; KEY_LEN],
     /// An optional preshared key
@@ -294,7 +294,7 @@ pub struct HalfHandshake {
 }
 
 pub fn parse_handshake_anon(
-    static_private: &x25519::StaticSecret,
+    static_private: &[u8],
     static_public: &x25519::PublicKey,
     packet: &HandshakeInit,
 ) -> Result<HalfHandshake, WireGuardError> {
@@ -315,7 +315,7 @@ pub fn parse_handshake_anon(
         &[0x01],
     );
     // temp = HMAC(initiator.chaining_key, DH(initiator.ephemeral_private, responder.static_public))
-    let ephemeral_shared = diffie_hellman(static_private.as_bytes(), peer_ephemeral_public.as_bytes());
+    let ephemeral_shared = diffie_hellman(static_private, peer_ephemeral_public.as_bytes());
     let temp = b2s_hmac(&chaining_key, &ephemeral_shared);
     // initiator.chaining_key = HMAC(temp, 0x1)
     chaining_key = b2s_hmac(&temp, &[0x01]);
@@ -341,12 +341,12 @@ pub fn parse_handshake_anon(
 impl NoiseParams {
     /// New noise params struct from our secret key, peers public key, and optional preshared key
     fn new(
-        static_private: x25519::StaticSecret,
+        static_private: [u8; KEY_LEN],
         static_public: x25519::PublicKey,
         peer_static_public: x25519::PublicKey,
-        preshared_key: Option<[u8; 32]>,
+        preshared_key: Option<[u8; KEY_LEN]>,
     ) -> NoiseParams {
-        let static_shared = diffie_hellman(static_private.as_bytes(), peer_static_public.as_bytes());
+        let static_shared = diffie_hellman(&static_private, peer_static_public.as_bytes());
 
         let initial_sending_mac_key = b2s_hash(LABEL_MAC1, peer_static_public.as_bytes());
 
@@ -363,23 +363,23 @@ impl NoiseParams {
     /// Set a new private key
     fn set_static_private(
         &mut self,
-        static_private: x25519::StaticSecret,
+        static_private: [u8; KEY_LEN],
         static_public: x25519::PublicKey,
     ) {
         // Check that the public key indeed matches the private key
-        let check_key = x25519::PublicKey::from(&static_private);
+        let check_key = x25519::PublicKey::from(&x25519::StaticSecret::from(static_private));
         assert_eq!(check_key.as_bytes(), static_public.as_bytes());
 
         self.static_private = static_private;
         self.static_public = static_public;
 
-        self.static_shared = diffie_hellman(self.static_private.as_bytes(), self.peer_static_public.as_bytes());
+        self.static_shared = diffie_hellman(&self.static_private, self.peer_static_public.as_bytes());
     }
 }
 
 impl Handshake {
     pub(crate) fn new(
-        static_private: x25519::StaticSecret,
+        static_private: [u8; KEY_LEN],
         static_public: x25519::PublicKey,
         peer_static_public: x25519::PublicKey,
         global_idx: u32,
@@ -442,7 +442,7 @@ impl Handshake {
 
     pub(crate) fn set_static_private(
         &mut self,
-        private_key: x25519::StaticSecret,
+        private_key: [u8; KEY_LEN],
         public_key: x25519::PublicKey,
     ) {
         self.params.set_static_private(private_key, public_key)
@@ -471,7 +471,7 @@ impl Handshake {
             &[0x01],
         );
         // temp = HMAC(initiator.chaining_key, DH(initiator.ephemeral_private, responder.static_public))
-        let ephemeral_shared = diffie_hellman(self.params.static_private.as_bytes(), peer_ephemeral_public.as_bytes());
+        let ephemeral_shared = diffie_hellman(&self.params.static_private, peer_ephemeral_public.as_bytes());
         let temp = b2s_hmac(&chaining_key, &ephemeral_shared);
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
@@ -559,7 +559,7 @@ impl Handshake {
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.static_public))
         let temp = b2s_hmac(
             &chaining_key,
-            &diffie_hellman(self.params.static_private.as_bytes(), unencrypted_ephemeral.as_bytes())
+            &diffie_hellman(&self.params.static_private, unencrypted_ephemeral.as_bytes())
         );
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = b2s_hmac(&temp, &[0x01]);
