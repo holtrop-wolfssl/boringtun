@@ -11,7 +11,7 @@ use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
 use wolfssl_wolfcrypt::blake2::{BLAKE2s, BLAKE2sHmac};
 use wolfssl_wolfcrypt::chacha20_poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
-use wolfssl_wolfcrypt::curve25519::Curve25519Key;
+use wolfssl_wolfcrypt::ecc::ECC;
 
 #[cfg(feature = "mock-instant")]
 use mock_instant::Instant;
@@ -900,8 +900,9 @@ mod tests {
 
 fn diffie_hellman(private: &[u8], public: &[u8]) -> [u8; 32] {
     let mut shared_secret = [0u8; 32];
-    let mut private_key = Curve25519Key::import_private_ex(private, false).unwrap();
-    let mut public_key = Curve25519Key::import_public_ex(public, false).unwrap();
-    Curve25519Key::shared_secret_ex(&mut private_key, &mut public_key, &mut shared_secret, false).unwrap();
+    let mut ecc_private = ECC::import_private_key_ex(private, &[], ECC::SECP256R1, None, None).unwrap();
+    let mut ecc_public = ECC::import_x963_ex(public, ECC::SECP256R1, None, None).unwrap();
+    let size = ecc_private.shared_secret(&mut ecc_public, &mut shared_secret).unwrap();
+    assert_eq!(size, shared_secret.len());
     shared_secret
 }
