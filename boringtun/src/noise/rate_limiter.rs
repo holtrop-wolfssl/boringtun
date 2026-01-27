@@ -13,7 +13,7 @@ use crate::sleepyinstant::Instant;
 use parking_lot::Mutex;
 use rand_core::{OsRng, RngCore};
 use ring::constant_time::verify_slices_are_equal;
-use wolfssl_wolfcrypt::chacha20_poly1305::XChaCha20Poly1305;
+use wolfssl_wolfcrypt::aes::GCM;
 
 const COOKIE_REFRESH: u64 = 128; // Use 128 and not 120 so the compiler can optimize out the division
 const COOKIE_SIZE: usize = 32;
@@ -132,7 +132,10 @@ impl RateLimiter {
         receiver_index.copy_from_slice(&idx.to_le_bytes());
         nonce.copy_from_slice(&self.nonce()[..]);
 
-        XChaCha20Poly1305::encrypt(&self.cookie_key, nonce, mac1, &cookie, encrypted_cookie)
+        let (cipher_out, tag_out) = encrypted_cookie.split_at_mut(cookie.len());
+        let mut gcm = GCM::new().map_err(|_| WireGuardError::DestinationBufferTooSmall)?;
+        gcm.init(&self.cookie_key).map_err(|_| WireGuardError::DestinationBufferTooSmall)?;
+        gcm.encrypt(&cookie, cipher_out, nonce, mac1, tag_out)
             .map_err(|_| WireGuardError::DestinationBufferTooSmall)?;
 
         Ok(&mut dst[..super::COOKIE_REPLY_SZ])

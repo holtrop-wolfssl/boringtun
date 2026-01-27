@@ -9,7 +9,7 @@ use crate::sleepyinstant::Instant;
 use crate::x25519;
 use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
-use wolfssl_wolfcrypt::chacha20_poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
+use wolfssl_wolfcrypt::aes::GCM;
 use wolfssl_wolfcrypt::ecc::ECC;
 use wolfssl_wolfcrypt::hmac::HMAC;
 use wolfssl_wolfcrypt::sha::SHA256;
@@ -108,15 +108,15 @@ pub(crate) fn hmac_sha256_mac_16(key: &[u8], data1: &[u8]) -> [u8; 16] {
 
 #[inline]
 /// This wrapper involves an extra copy and MAY BE SLOWER
-fn aead_chacha20_seal(ciphertext: &mut [u8], key: &[u8], counter: u64, data: &[u8], aad: &[u8]) {
+fn aead_aes_gcm_seal(ciphertext: &mut [u8], key: &[u8], counter: u64, data: &[u8], aad: &[u8]) {
     let mut nonce: [u8; 12] = [0; 12];
     nonce[4..12].copy_from_slice(&counter.to_le_bytes());
 
-    aead_chacha20_seal_inner(ciphertext, key, nonce, data, aad)
+    aead_aes_gcm_seal_inner(ciphertext, key, nonce, data, aad)
 }
 
 #[inline]
-fn aead_chacha20_seal_inner(
+fn aead_aes_gcm_seal_inner(
     ciphertext: &mut [u8],
     key: &[u8],
     nonce: [u8; 12],
@@ -124,12 +124,14 @@ fn aead_chacha20_seal_inner(
     aad: &[u8],
 ) {
     let (cipher_out, tag_out) = ciphertext.split_at_mut(data.len());
-    ChaCha20Poly1305::encrypt(key, &nonce, aad, data, cipher_out, tag_out).unwrap();
+    let mut gcm = GCM::new().unwrap();
+    gcm.init(key).unwrap();
+    gcm.encrypt(data, cipher_out, &nonce, aad, tag_out).unwrap();
 }
 
 #[inline]
 /// This wrapper involves an extra copy and MAY BE SLOWER
-fn aead_chacha20_open(
+fn aead_aes_gcm_open(
     buffer: &mut [u8],
     key: &[u8],
     counter: u64,
@@ -139,7 +141,9 @@ fn aead_chacha20_open(
     let mut nonce: [u8; 12] = [0; 12];
     nonce[4..].copy_from_slice(&counter.to_le_bytes());
 
-    ChaCha20Poly1305::decrypt(key, &nonce, aad, &data[..data.len()-16], &data[data.len()-16..], buffer)
+    let mut gcm = GCM::new().map_err(|_| WireGuardError::InvalidAeadTag)?;
+    gcm.init(key).map_err(|_| WireGuardError::InvalidAeadTag)?;
+    gcm.decrypt(&data[..data.len()-16], buffer, &nonce, aad, &data[data.len()-16..])
         .map_err(|_| WireGuardError::InvalidAeadTag)?;
     Ok(())
 }
@@ -340,7 +344,7 @@ pub fn parse_handshake_anon(
 
     let mut peer_static_public = [0u8; PUBLIC_KEY_LEN];
     // msg.encrypted_static = AEAD(key, 0, initiator.static_public, initiator.hash)
-    aead_chacha20_open(
+    aead_aes_gcm_open(
         &mut peer_static_public,
         &key,
         0,
@@ -496,7 +500,7 @@ impl Handshake {
 
         let mut peer_static_public_decrypted = [0u8; PUBLIC_KEY_LEN];
         // msg.encrypted_static = AEAD(key, 0, initiator.static_public, initiator.hash)
-        aead_chacha20_open(
+        aead_aes_gcm_open(
             &mut peer_static_public_decrypted,
             &key,
             0,
@@ -520,7 +524,7 @@ impl Handshake {
         let key = sha256_hmac2(&temp, &chaining_key, &[0x02]);
         // msg.encrypted_timestamp = AEAD(key, 0, TAI64N(), initiator.hash)
         let mut timestamp = [0u8; TIMESTAMP_LEN];
-        aead_chacha20_open(&mut timestamp, &key, 0, packet.encrypted_timestamp, &hash)?;
+        aead_aes_gcm_open(&mut timestamp, &key, 0, packet.encrypted_timestamp, &hash)?;
 
         let timestamp = Tai64N::parse(&timestamp)?;
         if !timestamp.after(&self.last_handshake_timestamp) {
@@ -593,7 +597,7 @@ impl Handshake {
         // responder.hash = HASH(responder.hash || temp2)
         hash = sha256_hash(&hash, &temp2);
         // msg.encrypted_nothing = AEAD(key, 0, [empty], responder.hash)
-        aead_chacha20_open(&mut [], &key, 0, packet.encrypted_nothing, &hash)?;
+        aead_aes_gcm_open(&mut [], &key, 0, packet.encrypted_nothing, &hash)?;
 
         // responder.hash = HASH(responder.hash || msg.encrypted_nothing)
         // hash = sha256_hash(hash, buf[ENC_NOTHING_OFF..ENC_NOTHING_OFF + ENC_NOTHING_SZ]);
@@ -636,13 +640,16 @@ impl Handshake {
         if packet.receiver_idx != local_index {
             return Err(WireGuardError::WrongIndex);
         }
-        // msg.encrypted_cookie = XAEAD(HASH(LABEL_COOKIE || responder.static_public), msg.nonce, cookie, last_received_msg.mac1)
+        // msg.encrypted_cookie = AEAD(HASH(LABEL_COOKIE || responder.static_public), msg.nonce, cookie, last_received_msg.mac1)
         let key = sha256_hash(LABEL_COOKIE, &self.params.peer_static_public); // TODO: pre-compute
 
         let aad = &mac1[..];
         let msg = packet.encrypted_cookie;
-        let mut plaintext = vec![0u8; msg.len()];
-        XChaCha20Poly1305::decrypt(&key, packet.nonce, aad, msg, &mut plaintext)
+        let (ciphertext, tag) = msg.split_at(msg.len() - 16);
+        let mut plaintext = vec![0u8; ciphertext.len()];
+        let mut gcm = GCM::new().map_err(|_| WireGuardError::InvalidAeadTag)?;
+        gcm.init(&key).map_err(|_| WireGuardError::InvalidAeadTag)?;
+        gcm.decrypt(ciphertext, &mut plaintext, packet.nonce, aad, tag)
             .map_err(|_| WireGuardError::InvalidAeadTag)?;
 
         let cookie = plaintext
@@ -723,7 +730,7 @@ impl Handshake {
         // key = HMAC(temp, initiator.chaining_key || 0x2)
         let key = sha256_hmac2(&temp, &chaining_key, &[0x02]);
         // msg.encrypted_static = AEAD(key, 0, initiator.static_public, initiator.hash)
-        aead_chacha20_seal(
+        aead_aes_gcm_seal(
             encrypted_static,
             &key,
             0,
@@ -740,7 +747,7 @@ impl Handshake {
         let key = sha256_hmac2(&temp, &chaining_key, &[0x02]);
         // msg.encrypted_timestamp = AEAD(key, 0, TAI64N(), initiator.hash)
         let timestamp = self.stamper.stamp();
-        aead_chacha20_seal(encrypted_timestamp, &key, 0, &timestamp, &hash);
+        aead_aes_gcm_seal(encrypted_timestamp, &key, 0, &timestamp, &hash);
         // initiator.hash = HASH(initiator.hash || msg.encrypted_timestamp)
         hash = sha256_hash(&hash, encrypted_timestamp);
 
@@ -830,7 +837,7 @@ impl Handshake {
         // responder.hash = HASH(responder.hash || temp2)
         hash = sha256_hash(&hash, &temp2);
         // msg.encrypted_nothing = AEAD(key, 0, [empty], responder.hash)
-        aead_chacha20_seal(encrypted_nothing, &key, 0, &[], &hash);
+        aead_aes_gcm_seal(encrypted_nothing, &key, 0, &[], &hash);
 
         // Derive keys
         // temp1 = HMAC(initiator.chaining_key, [empty])
@@ -870,7 +877,7 @@ mod tests {
         ];
         let mut buffer = vec![0; plaintext.len() + 16];
 
-        aead_chacha20_seal_inner(&mut buffer, &key, nonce, plaintext, &aad);
+        aead_aes_gcm_seal_inner(&mut buffer, &key, nonce, plaintext, &aad);
 
         const EXPECTED_CIPHERTEXT: [u8; 114] = [
             0xd3, 0x1a, 0x8d, 0x34, 0x64, 0x8e, 0x60, 0xdb, 0x7b, 0x86, 0xaf, 0xbc, 0x53, 0xef,
@@ -900,11 +907,11 @@ mod tests {
 
         let mut encrypted_nothing: [u8; 16] = Default::default();
 
-        aead_chacha20_seal(&mut encrypted_nothing, &key, counter, &[], &aad);
+        aead_aes_gcm_seal(&mut encrypted_nothing, &key, counter, &[], &aad);
 
         eprintln!("encrypted_nothing: {:?}", encrypted_nothing);
 
-        aead_chacha20_open(&mut [], &key, counter, &encrypted_nothing, &aad)
+        aead_aes_gcm_open(&mut [], &key, counter, &encrypted_nothing, &aad)
             .expect("Should open what we just sealed");
     }
 }
