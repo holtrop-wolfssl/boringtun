@@ -4,14 +4,14 @@
 use super::PacketData;
 use crate::noise::errors::WireGuardError;
 use parking_lot::Mutex;
-use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
+use wolfssl_wolfcrypt::aes::GCM;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct Session {
     pub(crate) receiving_index: u32,
     sending_index: u32,
-    receiver: LessSafeKey,
-    sender: LessSafeKey,
+    receiving_key: [u8; 32],
+    sending_key: [u8; 32],
     sending_key_counter: AtomicUsize,
     receiving_key_counter: Mutex<ReceivingKeyCounterValidator>,
 }
@@ -161,10 +161,8 @@ impl Session {
         Session {
             receiving_index: local_index,
             sending_index: peer_index,
-            receiver: LessSafeKey::new(
-                UnboundKey::new(&CHACHA20_POLY1305, &receiving_key).unwrap(),
-            ),
-            sender: LessSafeKey::new(UnboundKey::new(&CHACHA20_POLY1305, &sending_key).unwrap()),
+            receiving_key,
+            sending_key,
             sending_key_counter: AtomicUsize::new(0),
             receiving_key_counter: Mutex::new(Default::default()),
         }
@@ -212,18 +210,14 @@ impl Session {
         let n = {
             let mut nonce = [0u8; 12];
             nonce[4..12].copy_from_slice(&sending_key_counter.to_le_bytes());
-            data[..src.len()].copy_from_slice(src);
-            self.sender
-                .seal_in_place_separate_tag(
-                    Nonce::assume_unique_for_key(nonce),
-                    Aad::from(&[]),
-                    &mut data[..src.len()],
-                )
-                .map(|tag| {
-                    data[src.len()..src.len() + AEAD_SIZE].copy_from_slice(tag.as_ref());
-                    src.len() + AEAD_SIZE
-                })
-                .unwrap()
+
+            let (ciphertext, tag) = data.split_at_mut(src.len());
+            let mut gcm = GCM::new().unwrap();
+            gcm.init(&self.sending_key).unwrap();
+            gcm.encrypt(src, ciphertext, &nonce, &[], &mut tag[..AEAD_SIZE])
+                .unwrap();
+
+            src.len() + AEAD_SIZE
         };
 
         &mut dst[..DATA_OFFSET + n]
@@ -239,7 +233,11 @@ impl Session {
         dst: &'a mut [u8],
     ) -> Result<&'a mut [u8], WireGuardError> {
         let ct_len = packet.encrypted_encapsulated_packet.len();
-        if dst.len() < ct_len {
+        if ct_len < AEAD_SIZE {
+            return Err(WireGuardError::InvalidAeadTag);
+        }
+        let pt_len = ct_len - AEAD_SIZE;
+        if dst.len() < pt_len {
             // This is a very incorrect use of the library, therefore panic and not error
             panic!("The destination buffer is too small");
         }
@@ -249,22 +247,21 @@ impl Session {
         // Don't reuse counters, in case this is a replay attack we want to quickly check the counter without running expensive decryption
         self.receiving_counter_quick_check(packet.counter)?;
 
-        let ret = {
-            let mut nonce = [0u8; 12];
-            nonce[4..12].copy_from_slice(&packet.counter.to_le_bytes());
-            dst[..ct_len].copy_from_slice(packet.encrypted_encapsulated_packet);
-            self.receiver
-                .open_in_place(
-                    Nonce::assume_unique_for_key(nonce),
-                    Aad::from(&[]),
-                    &mut dst[..ct_len],
-                )
-                .map_err(|_| WireGuardError::InvalidAeadTag)?
-        };
+        let mut nonce = [0u8; 12];
+        nonce[4..12].copy_from_slice(&packet.counter.to_le_bytes());
+
+        let ciphertext = &packet.encrypted_encapsulated_packet[..pt_len];
+        let tag = &packet.encrypted_encapsulated_packet[pt_len..];
+
+        let mut gcm = GCM::new().map_err(|_| WireGuardError::InvalidAeadTag)?;
+        gcm.init(&self.receiving_key)
+            .map_err(|_| WireGuardError::InvalidAeadTag)?;
+        gcm.decrypt(ciphertext, &mut dst[..pt_len], &nonce, &[], tag)
+            .map_err(|_| WireGuardError::InvalidAeadTag)?;
 
         // After decryption is done, check counter again, and mark as received
         self.receiving_counter_mark(packet.counter)?;
-        Ok(ret)
+        Ok(&mut dst[..pt_len])
     }
 
     /// Returns the estimated downstream packet loss for this session
