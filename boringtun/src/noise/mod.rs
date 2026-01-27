@@ -81,7 +81,7 @@ const DATA: MessageType = 4;
 
 const HANDSHAKE_INIT_SZ: usize = 213;
 const HANDSHAKE_RESP_SZ: usize = 157;
-const COOKIE_REPLY_SZ: usize = 80;
+const COOKIE_REPLY_SZ: usize = 72;
 const DATA_OVERHEAD_SZ: usize = 32;
 
 #[derive(Debug)]
@@ -150,8 +150,8 @@ impl Tunn {
             }),
             (COOKIE_REPLY, COOKIE_REPLY_SZ) => Packet::PacketCookieReply(PacketCookieReply {
                 receiver_idx: u32::from_le_bytes(src[4..8].try_into().unwrap()),
-                nonce: &src[8..32],
-                encrypted_cookie: &src[32..80],
+                nonce: &src[8..24],
+                encrypted_cookie: &src[24..72],
             }),
             (DATA, DATA_OVERHEAD_SZ..=std::usize::MAX) => Packet::PacketData(PacketData {
                 receiver_idx: u32::from_le_bytes(src[4..8].try_into().unwrap()),

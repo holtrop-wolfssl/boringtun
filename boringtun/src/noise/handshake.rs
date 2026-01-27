@@ -95,14 +95,14 @@ pub(crate) fn hmac_sha256_mac_32_2(key: &[u8], data1: &[u8], data2: &[u8]) -> [u
     mac
 }
 
-/// 24-byte MAC using HMAC-SHA256 (truncated)
-pub(crate) fn hmac_sha256_mac_24(key: &[u8], data1: &[u8]) -> [u8; 24] {
+/// 16-byte MAC using HMAC-SHA256 (truncated)
+pub(crate) fn hmac_sha256_mac_16(key: &[u8], data1: &[u8]) -> [u8; 16] {
     let mut full_mac = [0u8; 32];
     let mut hmac = HMAC::new(HMAC::TYPE_SHA256, key).unwrap();
     hmac.update(data1).unwrap();
     hmac.finalize(&mut full_mac).unwrap();
-    let mut hash = [0u8; 24];
-    hash.copy_from_slice(&full_mac[..24]);
+    let mut hash = [0u8; 16];
+    hash.copy_from_slice(&full_mac[..16]);
     hash
 }
 

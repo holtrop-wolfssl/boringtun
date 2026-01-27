@@ -1,4 +1,4 @@
-use super::handshake::{sha256_hash, hmac_sha256_mac_32, hmac_sha256_mac_32_2, hmac_sha256_mac_24};
+use super::handshake::{sha256_hash, hmac_sha256_mac_32, hmac_sha256_mac_32_2, hmac_sha256_mac_16};
 use crate::noise::handshake::{LABEL_COOKIE, LABEL_MAC1};
 use crate::noise::{HandshakeInit, HandshakeResponse, Packet, Tunn, TunnResult, WireGuardError};
 
@@ -17,7 +17,7 @@ use wolfssl_wolfcrypt::chacha20_poly1305::XChaCha20Poly1305;
 
 const COOKIE_REFRESH: u64 = 128; // Use 128 and not 120 so the compiler can optimize out the division
 const COOKIE_SIZE: usize = 32;
-const COOKIE_NONCE_SIZE: usize = 24;
+const COOKIE_NONCE_SIZE: usize = 16;
 
 /// How often should reset count in seconds
 const RESET_PERIOD: u64 = 1;
@@ -25,7 +25,7 @@ const RESET_PERIOD: u64 = 1;
 type Cookie = [u8; COOKIE_SIZE];
 
 /// There are two places where WireGuard requires "randomness" for cookies
-/// * The 24 byte nonce in the cookie massage - here the only goal is to avoid nonce reuse
+/// * The 16 byte nonce in the cookie massage - here the only goal is to avoid nonce reuse
 /// * A secret value that changes every two minutes
 /// Because the main goal of the cookie is simply for a party to prove ownership of an IP address
 /// we can relax the randomness definition a bit, in order to avoid locking, because using less
@@ -103,7 +103,7 @@ impl RateLimiter {
     fn nonce(&self) -> [u8; COOKIE_NONCE_SIZE] {
         let ctr = self.nonce_ctr.fetch_add(1, Ordering::Relaxed);
 
-        hmac_sha256_mac_24(&self.nonce_key, &ctr.to_le_bytes())
+        hmac_sha256_mac_16(&self.nonce_key, &ctr.to_le_bytes())
     }
 
     fn is_under_load(&self) -> bool {
@@ -123,7 +123,7 @@ impl RateLimiter {
 
         let (message_type, rest) = dst.split_at_mut(4);
         let (receiver_index, rest) = rest.split_at_mut(4);
-        let (nonce, encrypted_cookie) = rest.split_at_mut(24);
+        let (nonce, encrypted_cookie) = rest.split_at_mut(COOKIE_NONCE_SIZE);
 
         // msg.message_type = 3
         // msg.reserved_zero = { 0, 0, 0 }
