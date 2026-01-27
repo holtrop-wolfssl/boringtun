@@ -79,15 +79,15 @@ const HANDSHAKE_RESP: MessageType = 2;
 const COOKIE_REPLY: MessageType = 3;
 const DATA: MessageType = 4;
 
-const HANDSHAKE_INIT_SZ: usize = 148;
-const HANDSHAKE_RESP_SZ: usize = 92;
+const HANDSHAKE_INIT_SZ: usize = 181;
+const HANDSHAKE_RESP_SZ: usize = 125;
 const COOKIE_REPLY_SZ: usize = 64;
 const DATA_OVERHEAD_SZ: usize = 32;
 
 #[derive(Debug)]
 pub struct HandshakeInit<'a> {
     sender_idx: u32,
-    unencrypted_ephemeral: &'a [u8; 32],
+    unencrypted_ephemeral: &'a [u8; handshake::PUBLIC_KEY_LEN],
     encrypted_static: &'a [u8],
     encrypted_timestamp: &'a [u8],
 }
@@ -96,7 +96,7 @@ pub struct HandshakeInit<'a> {
 pub struct HandshakeResponse<'a> {
     sender_idx: u32,
     pub receiver_idx: u32,
-    unencrypted_ephemeral: &'a [u8; 32],
+    unencrypted_ephemeral: &'a [u8; handshake::PUBLIC_KEY_LEN],
     encrypted_nothing: &'a [u8],
 }
 
@@ -136,17 +136,17 @@ impl Tunn {
         Ok(match (packet_type, src.len()) {
             (HANDSHAKE_INIT, HANDSHAKE_INIT_SZ) => Packet::HandshakeInit(HandshakeInit {
                 sender_idx: u32::from_le_bytes(src[4..8].try_into().unwrap()),
-                unencrypted_ephemeral: <&[u8; 32] as TryFrom<&[u8]>>::try_from(&src[8..40])
+                unencrypted_ephemeral: <&[u8; 65] as TryFrom<&[u8]>>::try_from(&src[8..73])
                     .expect("length already checked above"),
-                encrypted_static: &src[40..88],
-                encrypted_timestamp: &src[88..116],
+                encrypted_static: &src[73..121],
+                encrypted_timestamp: &src[121..149],
             }),
             (HANDSHAKE_RESP, HANDSHAKE_RESP_SZ) => Packet::HandshakeResponse(HandshakeResponse {
                 sender_idx: u32::from_le_bytes(src[4..8].try_into().unwrap()),
                 receiver_idx: u32::from_le_bytes(src[8..12].try_into().unwrap()),
-                unencrypted_ephemeral: <&[u8; 32] as TryFrom<&[u8]>>::try_from(&src[12..44])
+                unencrypted_ephemeral: <&[u8; 65] as TryFrom<&[u8]>>::try_from(&src[12..77])
                     .expect("length already checked above"),
-                encrypted_nothing: &src[44..60],
+                encrypted_nothing: &src[77..93],
             }),
             (COOKIE_REPLY, COOKIE_REPLY_SZ) => Packet::PacketCookieReply(PacketCookieReply {
                 receiver_idx: u32::from_le_bytes(src[4..8].try_into().unwrap()),
@@ -192,9 +192,9 @@ impl Tunn {
 
     /// Create a new tunnel using own private key and the peer public key
     pub fn new(
-        static_private: [u8; 32],
-        peer_static_public: [u8; 32],
-        preshared_key: Option<[u8; 32]>,
+        static_private: [u8; handshake::PRIVATE_KEY_LEN],
+        peer_static_public: [u8; handshake::PUBLIC_KEY_LEN],
+        preshared_key: Option<[u8; handshake::SHARED_SECRET_KEY_LEN]>,
         persistent_keepalive: Option<u16>,
         index: u32,
         rate_limiter: Option<Arc<RateLimiter>>,
@@ -226,8 +226,8 @@ impl Tunn {
     /// Update the private key and clear existing sessions
     pub fn set_static_private(
         &mut self,
-        static_private: [u8; 32],
-        static_public: [u8; 32],
+        static_private: [u8; handshake::PRIVATE_KEY_LEN],
+        static_public: [u8; handshake::PUBLIC_KEY_LEN],
         rate_limiter: Option<Arc<RateLimiter>>,
     ) {
         self.timers.should_reset_rr = rate_limiter.is_none();

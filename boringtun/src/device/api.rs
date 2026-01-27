@@ -5,7 +5,7 @@ use super::dev_lock::LockReadGuard;
 use super::drop_privileges::get_saved_ids;
 use super::{AllowedIP, Device, Error, SocketAddr};
 use crate::device::Action;
-use crate::serialization::KeyBytes;
+use crate::serialization::{PrivateKeyBytes, PublicKeyBytes};
 use hex::encode as encode_hex;
 use libc::*;
 use std::fs::{create_dir, remove_file};
@@ -13,6 +13,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::atomic::Ordering;
+use crate::noise::handshake;
 
 const SOCK_DIR: &str = "/var/run/wireguard/";
 
@@ -222,7 +223,7 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
                     let (key, val) = (parsed_cmd[0], parsed_cmd[1]);
 
                     match key {
-                        "private_key" => match val.parse::<KeyBytes>() {
+                        "private_key" => match val.parse::<PrivateKeyBytes>() {
                             Ok(key_bytes) => {
                                 device.set_key(key_bytes.0)
                             }
@@ -252,7 +253,7 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
                             Ok(false) => {}
                             Err(_) => return EINVAL,
                         },
-                        "public_key" => match val.parse::<KeyBytes>() {
+                        "public_key" => match val.parse::<PublicKeyBytes>() {
                             // Indicates a new peer section
                             Ok(key_bytes) => {
                                 return api_set_peer(
@@ -278,7 +279,7 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
 fn api_set_peer(
     reader: &mut BufReader<&UnixStream>,
     d: &mut Device,
-    pub_key: [u8; 32],
+    pub_key: [u8; handshake::PUBLIC_KEY_LEN],
 ) -> i32 {
     let mut cmd = String::new();
 
@@ -316,7 +317,7 @@ fn api_set_peer(
                     Ok(false) => remove = false,
                     Err(_) => return EINVAL,
                 },
-                "preshared_key" => match val.parse::<KeyBytes>() {
+                "preshared_key" => match val.parse::<PrivateKeyBytes>() {
                     Ok(key_bytes) => preshared_key = Some(key_bytes.0),
                     Err(_) => return EINVAL,
                 },
@@ -349,7 +350,7 @@ fn api_set_peer(
                         preshared_key,
                     );
                     allowed_ips.clear(); //clear the vector content after update
-                    match val.parse::<KeyBytes>() {
+                    match val.parse::<PublicKeyBytes>() {
                         Ok(key_bytes) => public_key = key_bytes.0.into(),
                         Err(_) => return EINVAL,
                     }

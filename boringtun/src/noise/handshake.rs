@@ -12,18 +12,22 @@ use std::time::{Duration, SystemTime};
 use wolfssl_wolfcrypt::blake2::{BLAKE2s, BLAKE2sHmac};
 use wolfssl_wolfcrypt::chacha20_poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
 use wolfssl_wolfcrypt::ecc::ECC;
+use wolfssl_wolfcrypt::sha::SHA256;
 
 #[cfg(feature = "mock-instant")]
 use mock_instant::Instant;
 
 pub(crate) const LABEL_MAC1: &[u8; 8] = b"mac1----";
 pub(crate) const LABEL_COOKIE: &[u8; 8] = b"cookie--";
-const KEY_LEN: usize = 32;
-const TIMESTAMP_LEN: usize = 12;
+pub(crate) const PRIVATE_KEY_LEN: usize = 32;
+pub(crate) const PUBLIC_KEY_LEN: usize = 65;
+pub(crate) const TIMESTAMP_LEN: usize = 12;
+pub(crate) const HASH_LEN: usize = SHA256::DIGEST_SIZE;
+pub(crate) const SHARED_SECRET_KEY_LEN: usize = 32;
 
 // CONSTRUCTION = "Noise_IKpsk2_SECP256R1_AesGcm_SHA256"
 // initiator.chaining_key = HASH(CONSTRUCTION)
-const INITIAL_CHAIN_KEY: [u8; KEY_LEN] = [
+const INITIAL_CHAIN_KEY: [u8; HASH_LEN] = [
     0x08, 0x2D, 0xAF, 0xE0, 0xB1, 0x9F, 0xEE, 0x70,
     0x6A, 0x69, 0xF2, 0xB9, 0x5C, 0xA6, 0xE1, 0x36,
     0x9F, 0xAB, 0xD5, 0x36, 0x5F, 0x0E, 0x91, 0x62,
@@ -32,7 +36,7 @@ const INITIAL_CHAIN_KEY: [u8; KEY_LEN] = [
 
 // IDENTIFIER = "WolfGuard v1 info@wolfssl.com"
 // initiator.chaining_hash = HASH(initiator.chaining_key || IDENTIFIER)
-const INITIAL_CHAIN_HASH: [u8; KEY_LEN] = [
+const INITIAL_CHAIN_HASH: [u8; HASH_LEN] = [
     0x05, 0xB6, 0x88, 0xC3, 0xB9, 0x6E, 0xC7, 0x79,
     0x40, 0x77, 0x80, 0xBA, 0xEC, 0xBF, 0x19, 0x8E,
     0x39, 0xA1, 0x3D, 0x2C, 0x42, 0x74, 0x45, 0xEF,
@@ -206,17 +210,17 @@ impl Tai64N {
 /// Parameters used by the noise protocol
 struct NoiseParams {
     /// Our static public key
-    static_public: [u8; KEY_LEN],
+    static_public: [u8; PUBLIC_KEY_LEN],
     /// Our static private key
-    static_private: [u8; KEY_LEN],
+    static_private: [u8; PRIVATE_KEY_LEN],
     /// Static public key of the other party
-    peer_static_public: [u8; KEY_LEN],
+    peer_static_public: [u8; PUBLIC_KEY_LEN],
     /// A shared key = DH(static_private, peer_static_public)
-    static_shared: [u8; KEY_LEN],
+    static_shared: [u8; SHARED_SECRET_KEY_LEN],
     /// A pre-computation of HASH("mac1----", peer_static_public) for this peer
-    sending_mac1_key: [u8; KEY_LEN],
+    sending_mac1_key: [u8; HASH_LEN],
     /// An optional preshared key
-    preshared_key: Option<[u8; KEY_LEN]>,
+    preshared_key: Option<[u8; SHARED_SECRET_KEY_LEN]>,
 }
 
 impl std::fmt::Debug for NoiseParams {
@@ -234,9 +238,9 @@ impl std::fmt::Debug for NoiseParams {
 
 struct HandshakeInitSentState {
     local_index: u32,
-    hash: [u8; KEY_LEN],
-    chaining_key: [u8; KEY_LEN],
-    ephemeral_private: [u8; KEY_LEN],
+    hash: [u8; HASH_LEN],
+    chaining_key: [u8; HASH_LEN],
+    ephemeral_private: [u8; PRIVATE_KEY_LEN],
     time_sent: Instant,
 }
 
@@ -260,9 +264,9 @@ enum HandshakeState {
     InitSent(HandshakeInitSentState),
     /// Handshake initiated by peer
     InitReceived {
-        hash: [u8; KEY_LEN],
-        chaining_key: [u8; KEY_LEN],
-        peer_ephemeral_public: [u8; KEY_LEN],
+        hash: [u8; HASH_LEN],
+        chaining_key: [u8; HASH_LEN],
+        peer_ephemeral_public: [u8; PUBLIC_KEY_LEN],
         peer_index: u32,
     },
     /// Handshake was established too long ago (implies no handshake is in progress)
@@ -295,7 +299,7 @@ struct Cookies {
 #[derive(Debug)]
 pub struct HalfHandshake {
     pub peer_index: u32,
-    pub peer_static_public: [u8; 32],
+    pub peer_static_public: [u8; PUBLIC_KEY_LEN],
 }
 
 pub fn parse_handshake_anon(
@@ -327,7 +331,7 @@ pub fn parse_handshake_anon(
     // key = HMAC(temp, initiator.chaining_key || 0x2)
     let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
 
-    let mut peer_static_public = [0u8; KEY_LEN];
+    let mut peer_static_public = [0u8; PUBLIC_KEY_LEN];
     // msg.encrypted_static = AEAD(key, 0, initiator.static_public, initiator.hash)
     aead_chacha20_open(
         &mut peer_static_public,
@@ -346,10 +350,10 @@ pub fn parse_handshake_anon(
 impl NoiseParams {
     /// New noise params struct from our secret key, peers public key, and optional preshared key
     fn new(
-        static_private: [u8; KEY_LEN],
-        static_public: [u8; KEY_LEN],
-        peer_static_public: [u8; KEY_LEN],
-        preshared_key: Option<[u8; KEY_LEN]>,
+        static_private: [u8; PRIVATE_KEY_LEN],
+        static_public: [u8; PUBLIC_KEY_LEN],
+        peer_static_public: [u8; PUBLIC_KEY_LEN],
+        preshared_key: Option<[u8; SHARED_SECRET_KEY_LEN]>,
     ) -> NoiseParams {
         let static_shared = diffie_hellman(&static_private, &peer_static_public);
 
@@ -368,8 +372,8 @@ impl NoiseParams {
     /// Set a new private key
     fn set_static_private(
         &mut self,
-        static_private: [u8; KEY_LEN],
-        static_public: [u8; KEY_LEN],
+        static_private: [u8; PRIVATE_KEY_LEN],
+        static_public: [u8; PUBLIC_KEY_LEN],
     ) {
         // Check that the public key indeed matches the private key
         let check_key = x25519::dh_make_pub(&static_private);
@@ -384,9 +388,9 @@ impl NoiseParams {
 
 impl Handshake {
     pub(crate) fn new(
-        static_private: [u8; KEY_LEN],
-        static_public: [u8; KEY_LEN],
-        peer_static_public: [u8; KEY_LEN],
+        static_private: [u8; PRIVATE_KEY_LEN],
+        static_public: [u8; PUBLIC_KEY_LEN],
+        peer_static_public: [u8; PUBLIC_KEY_LEN],
         global_idx: u32,
         preshared_key: Option<[u8; 32]>,
     ) -> Handshake {
@@ -447,8 +451,8 @@ impl Handshake {
 
     pub(crate) fn set_static_private(
         &mut self,
-        private_key: [u8; KEY_LEN],
-        public_key: [u8; KEY_LEN],
+        private_key: [u8; PRIVATE_KEY_LEN],
+        public_key: [u8; PUBLIC_KEY_LEN],
     ) {
         self.params.set_static_private(private_key, public_key)
     }
@@ -483,7 +487,7 @@ impl Handshake {
         // key = HMAC(temp, initiator.chaining_key || 0x2)
         let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
 
-        let mut peer_static_public_decrypted = [0u8; KEY_LEN];
+        let mut peer_static_public_decrypted = [0u8; PUBLIC_KEY_LEN];
         // msg.encrypted_static = AEAD(key, 0, initiator.static_public, initiator.hash)
         aead_chacha20_open(
             &mut peer_static_public_decrypted,

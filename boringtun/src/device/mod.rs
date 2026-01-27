@@ -36,7 +36,7 @@ use std::thread;
 use std::thread::JoinHandle;
 
 use crate::noise::errors::WireGuardError;
-use crate::noise::handshake::parse_handshake_anon;
+use crate::noise::handshake::{self, parse_handshake_anon};
 use crate::noise::rate_limiter::RateLimiter;
 use crate::noise::{Packet, Tunn, TunnResult};
 use crate::x25519;
@@ -130,7 +130,7 @@ impl Default for DeviceConfig {
 }
 
 pub struct Device {
-    key_pair: Option<([u8; 32], [u8; 32])>,
+    key_pair: Option<([u8; handshake::PRIVATE_KEY_LEN], [u8; handshake::PUBLIC_KEY_LEN])>,
     queue: Arc<EventPoll<Handler>>,
 
     listen_port: u16,
@@ -143,7 +143,7 @@ pub struct Device {
     yield_notice: Option<EventRef>,
     exit_notice: Option<EventRef>,
 
-    peers: HashMap<[u8; 32], Arc<Mutex<Peer>>>,
+    peers: HashMap<[u8; handshake::PUBLIC_KEY_LEN], Arc<Mutex<Peer>>>,
     peers_by_ip: AllowedIps<Arc<Mutex<Peer>>>,
     peers_by_idx: HashMap<u32, Arc<Mutex<Peer>>>,
     next_index: IndexLfsr,
@@ -302,13 +302,13 @@ impl Device {
     #[allow(clippy::too_many_arguments)]
     fn update_peer(
         &mut self,
-        pub_key: [u8; 32],
+        pub_key: [u8; handshake::PUBLIC_KEY_LEN],
         remove: bool,
         _replace_ips: bool,
         endpoint: Option<SocketAddr>,
         allowed_ips: &[AllowedIP],
         keepalive: Option<u16>,
-        preshared_key: Option<[u8; 32]>,
+        preshared_key: Option<[u8; handshake::SHARED_SECRET_KEY_LEN]>,
     ) {
         if remove {
             // Completely remove a peer
@@ -451,7 +451,7 @@ impl Device {
         Ok(())
     }
 
-    fn set_key(&mut self, private_key: [u8; 32]) {
+    fn set_key(&mut self, private_key: [u8; handshake::PRIVATE_KEY_LEN]) {
         let public_key = x25519::dh_make_pub(&private_key);
         let key_pair = Some((private_key, public_key));
 

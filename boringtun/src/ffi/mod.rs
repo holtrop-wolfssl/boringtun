@@ -16,7 +16,7 @@ use rand_core::OsRng;
 use tracing;
 use tracing_subscriber::fmt;
 
-use crate::serialization::KeyBytes;
+use crate::serialization::{PrivateKeyBytes, PublicKeyBytes};
 use std::ffi::{CStr, CString};
 use std::io::{Error, ErrorKind, Write};
 use std::os::raw::c_char;
@@ -264,7 +264,7 @@ pub unsafe extern "C" fn new_tunnel(
         let c_str = CStr::from_ptr(preshared_key);
 
         if let Ok(string) = c_str.to_str() {
-            if let Ok(key) = string.parse::<KeyBytes>() {
+            if let Ok(key) = string.parse::<PrivateKeyBytes>() {
                 Some(key.0)
             } else {
                 return null_mut();
@@ -274,12 +274,12 @@ pub unsafe extern "C" fn new_tunnel(
         }
     };
 
-    let private_key = match static_private.parse::<KeyBytes>() {
+    let private_key = match static_private.parse::<PrivateKeyBytes>() {
         Err(_) => return ptr::null_mut(),
         Ok(key) => key.0,
     };
 
-    let public_key = match server_static_public.parse::<KeyBytes>() {
+    let public_key = match server_static_public.parse::<PublicKeyBytes>() {
         Err(_) => return ptr::null_mut(),
         Ok(key) => key.0,
     };
