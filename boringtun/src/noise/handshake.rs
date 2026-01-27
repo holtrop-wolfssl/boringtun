@@ -697,8 +697,8 @@ impl Handshake {
 
         let (message_type, rest) = dst.split_at_mut(4);
         let (sender_index, rest) = rest.split_at_mut(4);
-        let (unencrypted_ephemeral, rest) = rest.split_at_mut(32);
-        let (encrypted_static, rest) = rest.split_at_mut(32 + 16);
+        let (unencrypted_ephemeral, rest) = rest.split_at_mut(65);
+        let (encrypted_static, rest) = rest.split_at_mut(65 + 16);
         let (encrypted_timestamp, _) = rest.split_at_mut(12 + 16);
 
         let local_index = self.inc_index();
@@ -790,7 +790,7 @@ impl Handshake {
         let (message_type, rest) = dst.split_at_mut(4);
         let (sender_index, rest) = rest.split_at_mut(4);
         let (receiver_index, rest) = rest.split_at_mut(4);
-        let (unencrypted_ephemeral, rest) = rest.split_at_mut(32);
+        let (unencrypted_ephemeral, rest) = rest.split_at_mut(65);
         let (encrypted_nothing, _) = rest.split_at_mut(16);
 
         // responder.ephemeral_private = DH_GENERATE()

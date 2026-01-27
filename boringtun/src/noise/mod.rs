@@ -79,7 +79,7 @@ const HANDSHAKE_RESP: MessageType = 2;
 const COOKIE_REPLY: MessageType = 3;
 const DATA: MessageType = 4;
 
-const HANDSHAKE_INIT_SZ: usize = 213;
+const HANDSHAKE_INIT_SZ: usize = 246;
 const HANDSHAKE_RESP_SZ: usize = 157;
 const COOKIE_REPLY_SZ: usize = 72;
 const DATA_OVERHEAD_SZ: usize = 32;
@@ -138,8 +138,8 @@ impl Tunn {
                 sender_idx: u32::from_le_bytes(src[4..8].try_into().unwrap()),
                 unencrypted_ephemeral: <&[u8; 65] as TryFrom<&[u8]>>::try_from(&src[8..73])
                     .expect("length already checked above"),
-                encrypted_static: &src[73..121],
-                encrypted_timestamp: &src[121..149],
+                encrypted_static: &src[73..154],
+                encrypted_timestamp: &src[154..182],
             }),
             (HANDSHAKE_RESP, HANDSHAKE_RESP_SZ) => Packet::HandshakeResponse(HandshakeResponse {
                 sender_idx: u32::from_le_bytes(src[4..8].try_into().unwrap()),
