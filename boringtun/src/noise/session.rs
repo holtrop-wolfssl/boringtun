@@ -208,7 +208,7 @@ impl Session {
 
         // TODO: spec requires padding to 16 bytes, but actually works fine without it
         let n = {
-            let mut nonce = [0u8; 12];
+            let mut nonce = [0u8; 16];
             nonce[4..12].copy_from_slice(&sending_key_counter.to_le_bytes());
 
             let (ciphertext, tag) = data.split_at_mut(src.len());
@@ -247,7 +247,7 @@ impl Session {
         // Don't reuse counters, in case this is a replay attack we want to quickly check the counter without running expensive decryption
         self.receiving_counter_quick_check(packet.counter)?;
 
-        let mut nonce = [0u8; 12];
+        let mut nonce = [0u8; 16];
         nonce[4..12].copy_from_slice(&packet.counter.to_le_bytes());
 
         let ciphertext = &packet.encrypted_encapsulated_packet[..pt_len];
