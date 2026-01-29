@@ -109,7 +109,7 @@ pub(crate) fn hmac_sha256_mac_16(key: &[u8], data1: &[u8]) -> [u8; 16] {
 #[inline]
 /// This wrapper involves an extra copy and MAY BE SLOWER
 fn aead_aes_gcm_seal(ciphertext: &mut [u8], key: &[u8], counter: u64, data: &[u8], aad: &[u8]) {
-    let mut nonce: [u8; 12] = [0; 12];
+    let mut nonce: [u8; 16] = [0; 16];
     nonce[4..12].copy_from_slice(&counter.to_le_bytes());
 
     aead_aes_gcm_seal_inner(ciphertext, key, nonce, data, aad)
@@ -119,7 +119,7 @@ fn aead_aes_gcm_seal(ciphertext: &mut [u8], key: &[u8], counter: u64, data: &[u8
 fn aead_aes_gcm_seal_inner(
     ciphertext: &mut [u8],
     key: &[u8],
-    nonce: [u8; 12],
+    nonce: [u8; 16],
     data: &[u8],
     aad: &[u8],
 ) {
@@ -138,8 +138,8 @@ fn aead_aes_gcm_open(
     data: &[u8],
     aad: &[u8],
 ) -> Result<(), WireGuardError> {
-    let mut nonce: [u8; 12] = [0; 12];
-    nonce[4..].copy_from_slice(&counter.to_le_bytes());
+    let mut nonce: [u8; 16] = [0; 16];
+    nonce[4..12].copy_from_slice(&counter.to_le_bytes());
 
     let mut gcm = GCM::new().map_err(|_| WireGuardError::InvalidAeadTag)?;
     gcm.init(key).map_err(|_| WireGuardError::InvalidAeadTag)?;
