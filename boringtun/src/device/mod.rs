@@ -168,6 +168,13 @@ struct ThreadData {
 
 impl DeviceHandle {
     pub fn new(name: &str, config: DeviceConfig) -> Result<DeviceHandle, Error> {
+        #[cfg(feature = "fips")]
+        {
+            wolfssl_wolfcrypt::fips::set_private_key_read_enable(1);
+            /* Force RNG to set SetSeed callback before it is used internally. */
+            wolfssl_wolfcrypt::random::RNG::new().unwrap();
+        }
+
         let n_threads = config.n_threads;
         let mut wg_interface = Device::new(name, config)?;
         wg_interface.open_listen_socket(0)?; // Start listening on a random port
@@ -203,6 +210,13 @@ impl DeviceHandle {
     }
 
     fn event_loop(_i: usize, device: &Lock<Device>) {
+        #[cfg(feature = "fips")]
+        {
+            wolfssl_wolfcrypt::fips::set_private_key_read_enable(1);
+            /* Force RNG to set SetSeed callback before it is used internally. */
+            wolfssl_wolfcrypt::random::RNG::new().unwrap();
+        }
+
         #[cfg(target_os = "linux")]
         let mut thread_local = ThreadData {
             src_buf: [0u8; MAX_UDP_SIZE],
