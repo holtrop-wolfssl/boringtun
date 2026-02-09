@@ -1,3 +1,39 @@
+# wolfGuard-boringtun
+
+This repository is a fork of the [boringtun](https://github.com/cloudflare/boringtun)
+repository with support added by wolfSSL for the [WolfGuard](https://www.wolfssl.com/products/wolfguard/) protocol.
+It provides a user-space VPN implementation written in Rust and using [wolfSSL](https://www.wolfssl.com/)
+FIPS 140-3 validated cryptography.
+
+## Building
+
+Run `cargo build` to build.
+
+## Running
+
+To run the locally built binary, run `sudo target/debug/boringtun-cli -f wg50`
+(with whatever `wg` device name you would prefer).
+
+## Configuring
+
+A shell script such as this can be used to configure the `wg` interface:
+
+```bash
+#!/bin/sh -x
+DEV=wg50
+ip address add dev $DEV 172.17.0.2/24
+cat <<EOF | socat - UNIX-CONNECT:/var/run/wireguard/$DEV.sock
+set=1
+private_key=ABCDEF0123456789bXe3k4x8uhiJOrw/IEA6+tm5RiE
+public_key=ABCDEF0123456789R0A+1jntktYLYEJaVSK8QAuQdbR3oYNS/Jv1/zAHQZQpC1oxBigAA33UilFPHAghqcllozc
+endpoint=192.168.122.204:51820
+allowed_ip=172.17.0.1/32
+EOF
+ip link set up dev $DEV
+```
+
+The remainder of this README comes from the upstream boringtun project.
+
 ![boringtun logo banner](./banner.png)
 
 # BoringTun
